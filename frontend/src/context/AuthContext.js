@@ -35,3 +35,6 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
+// ✅ Add this line below:
+export const useAuth = () => React.useContext(AuthContext);
