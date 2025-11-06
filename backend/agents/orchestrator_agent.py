@@ -10,67 +10,71 @@ class OrchestratorAgent:
     def process_document(self, doc_id, file_path=None):
         from agents.ocr_agent import OcrAgent
         from agents.categorizer_agent import CategorizerAgent
-        from agents.tracker_agent import TrackerAgent
-        from models import Event
-
-        print(f"[Orchestrator] Starting OCR for document ID {doc_id}")
-
+        from models import Event, Document, db
+        from datetime import datetime, date
         import os
         from config import Config
+
+        print(f"[Orchestrator] Starting OCR for document ID {doc_id}")
 
         # Step 1: Locate file
         doc = Document.query.get(doc_id)
         if not file_path:
             file_path = os.path.join(Config.UPLOAD_FOLDER, doc.filename)
 
-        # Step 2: OCR
+        # Step 2: OCR Extraction
         ocr = OcrAgent()
-        full_text = ocr.extract_text(file_path)
+        full_text = ocr.extract_text(file_path)  # includes title + abstract
         summary_text = ocr.summarize_extracted_text(full_text)
 
+        # Step 3: Categorize
         categorizer = CategorizerAgent()
         classification = categorizer.categorize(full_text)
 
+        # Extract details
         category = classification.get("category", "General Event")
         department = classification.get("department", "General")
-        event_name = self._extract_event_name(full_text) or doc.filename
-        event_date = classification.get("date") or datetime.today().date()
-        event_department = department
-        event_category = category
 
+        # --- Extract event title and abstract from OCR ---
+        lines = [l.strip() for l in full_text.split("\n") if l.strip()]
+        title = lines[0] if lines else doc.filename
+        abstract = ""
+        for i, line in enumerate(lines):
+            if re.search(r"(?i)abstract|introduction", line):
+                abstract = " ".join(lines[i:i+10])  # read a few lines after
+                break
+        abstract = abstract or "Abstract/Intro not detected."
 
-        # Step 5: Save results to DB
-        doc.raw_text = summary_text
-        doc.category = event_category
-        doc.department = event_department
-        doc.status = "needs_review"
-        db.session.add(doc)
-
-        # ✅ Create a linked event entry for IQC
-        from datetime import datetime, date
-
-        # Ensure date is always a Python date object
+        # Date fallback
+        event_date = classification.get("date")
         if isinstance(event_date, str):
             try:
                 event_date = datetime.fromisoformat(event_date).date()
             except ValueError:
                 event_date = date.today()
+        elif not event_date:
+            event_date = date.today()
 
+        # Step 4: Save document info
+        doc.raw_text = summary_text
+        doc.category = category
+        doc.department = department
+        doc.status = "needs_review"
+        db.session.add(doc)
+
+        # Step 5: Save Event
         event = Event(
             document_id=doc.id,
-            name=event_name,
-            date=event_date,  # now a true date object
-            department=event_department,
-            category=event_category,
+            name=title.strip(),
+            date=event_date,
+            department=department,
+            category=category,
             validated=False
         )
         db.session.add(event)
         db.session.commit()
 
-
-        print(f"[Orchestrator] Document {doc.filename} processed successfully as {event_category} ({event_department}).")
-        print(f"[Orchestrator] Event '{event_name}' added for IQC validation.")
-
+        print(f"[Orchestrator] ✅ Processed: {title.strip()} ({category}, {department})")
 
 
     # --- Utility methods ---
