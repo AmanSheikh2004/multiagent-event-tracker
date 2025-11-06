@@ -43,6 +43,7 @@ Make sure you have these installed:
 3.  Install all required Python packages:
     ```bash
     pip install -r requirements.txt
+    pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1.tar.gz
     ```
 4.  Initialize the database (only needed once):
     ```bash
