@@ -1,8 +1,3 @@
-That's a fair request\! My previous response was intended to explain why I couldn't save a file directly, but it looks like I didn't provide the full code block as you asked. Apologies for that.
-
-Here is the **complete and full Markdown code** for your `README.md` file, ready for you to copy and paste:
-
-````markdown
 # 🧠 Multi-Agent AI Event Tracker
 
 A Flask + React-based AI system that uses **multi-agent intelligence** and **OCR (PaddleOCR)** to extract and categorize event data from uploaded documents.  
