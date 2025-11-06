@@ -1,35 +1,68 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
-import Login from './pages/Login';
-import Upload from './pages/Upload';
-import Tracker from './pages/Tracker';
-import Validate from './pages/Validate';
-import Admin from './pages/Admin';
+// src/App.js
+import React from "react";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "./context/AuthContext";
+import ProtectedRoute from "./routes/ProtectedRoute";
+import Layout from "./components/Layout";
 
-export default function App(){
+import Login from "./pages/Login";
+import Upload from "./pages/Upload";
+import Tracker from "./pages/Tracker";
+import Validate from "./pages/Validate";
+import Admin from "./pages/Admin";
+
+function App() {
   return (
-    <BrowserRouter>
-      <div className="min-h-screen bg-gray-50">
-        <nav className="bg-white shadow p-4">
-          <div className="container mx-auto flex justify-between">
-            <div><Link to="/" className="font-bold">MultiAgent Tracker</Link></div>
-            <div className="space-x-4">
-              <Link to="/upload">Upload</Link>
-              <Link to="/tracker">Tracker</Link>
-              <Link to="/admin">Admin</Link>
-            </div>
-          </div>
-        </nav>
-        <div className="container mx-auto p-6">
-          <Routes>
-            <Route path="/" element={<Login/>} />
-            <Route path="/upload" element={<Upload/>} />
-            <Route path="/tracker" element={<Tracker/>} />
-            <Route path="/validate" element={<Validate/>} />
-            <Route path="/admin" element={<Admin/>} />
-          </Routes>
-        </div>
-      </div>
-    </BrowserRouter>
+    <AuthProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<Login />} />
+
+          {/* Protected routes inside Layout */}
+          <Route
+            path="/upload"
+            element={
+              <ProtectedRoute roles={["student"]}>
+                <Layout>
+                  <Upload />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/validate"
+            element={
+              <ProtectedRoute roles={["teacher", "iqc"]}>
+                <Layout>
+                  <Validate />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute roles={["iqc"]}>
+                <Layout>
+                  <Admin />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tracker"
+            element={
+              <ProtectedRoute roles={["student", "teacher", "iqc"]}>
+                <Layout>
+                  <Tracker />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
+
+export default App;
