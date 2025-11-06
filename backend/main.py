@@ -6,8 +6,11 @@ from models import db, User, Document, ExtractedEntity, Event
 from werkzeug.utils import secure_filename
 from agents.orchestrator_agent import OrchestratorAgent
 from functools import wraps
+from flask_cors import CORS
+from flask import send_from_directory, abort
 
-ALLOWED_EXT = {'pdf','png','jpg','jpeg','tiff'}
+ALLOWED_EXT = {'pdf', 'png', 'jpg', 'jpeg', 'tiff'}
+
 
 def create_app():
     app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -16,28 +19,39 @@ def create_app():
     db.init_app(app)
     migrate = Migrate(app, db)
 
-    orchestrator = OrchestratorAgent(app)
+    # ✅ Enable CORS for frontend requests (localhost:3000)
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
+    orchestrator = OrchestratorAgent()
+
+    # ---------------- AUTH HELPERS ---------------- #
     def token_required(f):
         @wraps(f)
-        def wrapper(*args, **kwargs):
+        def decorated(*args, **kwargs):
             token = None
+            # ✅ Accept token from headers or URL
             if 'Authorization' in request.headers:
-                auth = request.headers.get('Authorization')
-                if auth and auth.startswith('Bearer '):
-                    token = auth.split(' ',1)[1]
+                auth = request.headers['Authorization']
+                if auth.startswith("Bearer "):
+                    token = auth.split(" ")[1]
+            elif 'token' in request.args:
+                token = request.args.get('token')
+
             if not token:
-                return jsonify({'message':'Token is missing'}), 401
+                return jsonify({'message': 'Token is missing'}), 401
+
             try:
                 data = jwt.decode(token, app.config['JWT_SECRET'], algorithms=['HS256'])
                 user = User.query.filter_by(username=data['sub']).first()
                 if not user:
-                    return jsonify({'message':'User not found'}), 401
+                    return jsonify({'message': 'User not found'}), 401
                 request.user = user
             except Exception as e:
-                return jsonify({'message':'Token invalid', 'error':str(e)}), 401
+                return jsonify({'message': 'Token invalid', 'error': str(e)}), 401
+
             return f(*args, **kwargs)
-        return wrapper
+        return decorated
+
 
     def role_required(roles):
         def decorator(f):
@@ -45,7 +59,7 @@ def create_app():
             def wrapped(*args, **kwargs):
                 user = getattr(request, 'user', None)
                 if not user or user.role not in roles:
-                    return jsonify({'message':'Forbidden'}), 403
+                    return jsonify({'message': 'Forbidden'}), 403
                 return f(*args, **kwargs)
             return wrapped
         return decorator
@@ -81,20 +95,30 @@ def create_app():
     def upload():
         if 'file' not in request.files:
             return jsonify({'message':'no file'}), 400
+
         f = request.files['file']
-        if f.filename=='': return jsonify({'message':'empty filename'}), 400
-        ext = f.filename.rsplit('.',1)[-1].lower()
+        if f.filename == '':
+            return jsonify({'message':'empty filename'}), 400
+
+        ext = f.filename.rsplit('.', 1)[-1].lower()
         if ext not in ALLOWED_EXT:
             return jsonify({'message':'file type not allowed'}), 400
+
         filename = secure_filename(f.filename)
         path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         f.save(path)
-        doc = Document(filename=filename, uploaded_by=request.user.username, status='uploaded')
-        db.session.add(doc); db.session.commit()
 
-        orchestrator.process_document(doc.id, path)
+        # ✅ Mark status as pending review
+        doc = Document(filename=filename, uploaded_by=request.user.username, status='needs_review')
+        db.session.add(doc)
+        db.session.commit()
 
-        return jsonify({'message':'uploaded','document_id':doc.id})
+        # Trigger orchestration
+        orchestrator.process_document(doc.id)
+
+        print(f"[Upload] Document {filename} marked as 'needs_review' for validation.")
+        return jsonify({'message': 'uploaded', 'document_id': doc.id})
+
 
     @app.route('/api/documents', methods=['GET'])
     @token_required
@@ -162,6 +186,56 @@ def create_app():
         output.write(si.getvalue().encode('utf-8'))
         output.seek(0)
         return send_file(output, as_attachment=True, download_name=f'{dept}_report.csv', mimetype='text/csv')
+    
+    @app.route("/api/validate/events", methods=["GET"])
+    @token_required
+    @role_required(["teacher", "iqc"])
+    def list_pending_events():
+        try:
+            user = request.user
+
+            # 🧑‍🏫 Teachers → See only events from their department that are unvalidated
+            if user.role == "teacher":
+                events = Event.query.filter_by(validated=False, department=user.department).all()
+            
+            # 🧑‍💼 IQC → See all unvalidated events from all departments
+            elif user.role == "iqc":
+                events = Event.query.filter_by(validated=False).all()
+            
+            else:
+                return jsonify({"message": "Forbidden"}), 403
+
+            event_list = []
+            for e in events:
+                event_list.append({
+                    "id": e.id,
+                    "name": e.name,
+                    "date": e.date.isoformat() if e.date else None,
+                    "category": e.category,
+                    "department": e.department,
+                    "document_id": e.document_id,
+                    "uploaded_by": e.document.uploaded_by if e.document else "Unknown",
+                    "validated": e.validated
+                })
+
+            return jsonify({"events": event_list}), 200
+
+        except Exception as e:
+            print("[Error] Event fetch failed:", e)
+            return jsonify({"message": "Error fetching events", "error": str(e)}), 500
+
+            
+    @app.route('/api/document/<int:doc_id>/file', methods=['GET'])
+    @token_required
+    def document_file(doc_id):
+        d = Document.query.get_or_404(doc_id)
+        filename = d.filename
+        upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
+        try:
+            return send_from_directory(upload_dir, filename, as_attachment=False)
+        except Exception as e:
+            print("File send error:", e)
+            abort(404)
 
     @app.route('/', defaults={'path':''})
     def index(path=''):
