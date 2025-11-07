@@ -10,15 +10,17 @@ import Upload from "./pages/Upload";
 import Tracker from "./pages/Tracker";
 import Validate from "./pages/Validate";
 import Admin from "./pages/Admin";
+import DepartmentTracker from "./pages/DepartmentTracker"; // ✅ NEW IMPORT
 
 function App() {
   return (
     <AuthProvider>
       <Router>
         <Routes>
+          {/* Public route */}
           <Route path="/" element={<Login />} />
 
-          {/* Protected routes inside Layout */}
+          {/* Student Routes */}
           <Route
             path="/upload"
             element={
@@ -29,6 +31,8 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* Teacher / IQC Validation */}
           <Route
             path="/validate"
             element={
@@ -39,6 +43,8 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* IQC Admin */}
           <Route
             path="/admin"
             element={
@@ -49,12 +55,26 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* IQC Tracker Dashboard */}
           <Route
             path="/tracker"
             element={
-              <ProtectedRoute roles={["student", "teacher", "iqc"]}>
+              <ProtectedRoute roles={["iqc"]}>
                 <Layout>
                   <Tracker />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Department Detail View for IQC */}
+          <Route
+            path="/tracker/:dept"
+            element={
+              <ProtectedRoute roles={["iqc"]}>
+                <Layout>
+                  <DepartmentTracker />
                 </Layout>
               </ProtectedRoute>
             }
