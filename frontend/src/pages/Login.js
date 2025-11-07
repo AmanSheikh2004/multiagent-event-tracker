@@ -17,10 +17,13 @@ const Login = () => {
       const { token, user } = res.data;
       login(token, user);
 
-      // Redirect based on role
-      if (user.role === "student") navigate("/upload");
-      else if (user.role === "teacher") navigate("/validate");
-      else if (user.role === "iqc") navigate("/admin");
+      // Redirect based on role (updated for tracker pages)
+      setTimeout(() => {
+        if (user.role === "student") navigate("/student/tracker");
+        else if (user.role === "teacher") navigate("/teacher/tracker");
+        else if (user.role === "iqc") navigate("/tracker");
+      }, 300);
+
     } catch (err) {
       setError("Invalid username or password");
     }
