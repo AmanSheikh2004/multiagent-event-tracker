@@ -110,9 +110,20 @@ class CategorizerAgent:
         # --- Event Name Extraction ---
         event_name = self.extract_event_name(text)
 
+        # --- Normalize Department Short Codes ---
+        dept_map = {
+            "Artificial Intelligence & Machine Learning": "AIML",
+            "Computer Science & Engineering": "CSE(Core)",
+            "Information Science & Engineering": "ISE",
+            "Electronics & Communication Engineering": "ECE",
+        }
+
+        short_dept = dept_map.get(detected_dept, detected_dept)
+
         return {
             "event_name": event_name,
-            "department": detected_dept,
+            "department": short_dept,
             "category": detected_cat,
             "date": extracted_date,
         }
+

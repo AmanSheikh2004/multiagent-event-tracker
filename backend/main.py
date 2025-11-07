@@ -158,19 +158,6 @@ def create_app():
         db.session.commit()
         return jsonify({'message':'validated'})
 
-    @app.route('/api/tracker', methods=['GET'])
-    @token_required
-    def tracker():
-        depts = ['AIML','CSE(Core)']
-        out = {}
-        for dept in depts:
-            events = Event.query.filter_by(department=dept).all()
-            total = len(events)
-            cat_counts = {}
-            for ev in events:
-                cat_counts[ev.category] = cat_counts.get(ev.category,0)+1
-            out[dept] = {'total': total, 'by_category': cat_counts, 'events':[{'name':e.name,'date': e.date.isoformat() if e.date else None,'category':e.category} for e in events]}
-        return jsonify(out)
 
     @app.route('/api/report/<dept>', methods=['GET'])
     @token_required
@@ -240,6 +227,56 @@ def create_app():
     @app.route('/', defaults={'path':''})
     def index(path=''):
         return jsonify({'message':'API Running'})
+    
+    @app.route('/api/tracker', methods=['GET'])
+    @token_required
+    @role_required(['iqc'])
+    def iqc_tracker():
+        try:
+            departments = {
+                "AIML": 10,
+                "CSE(Core)": 10,
+                "ISE": 10,
+                "ECE": 10,
+                "AERO": 10
+            }
+
+            result = {}
+
+            for dept, fixed_total in departments.items():
+                validated = Event.query.filter_by(department=dept, validated=True).count()
+
+                # ✅ progress = validated / fixed_total
+                progress = round((validated / fixed_total) * 100, 2) if fixed_total > 0 else 0
+                result[dept] = {
+                    "validated": validated,
+                    "total": fixed_total,
+                    "progress": progress
+                }
+
+            return jsonify(result), 200
+
+        except Exception as e:
+            print("[Tracker Error]", e)
+            return jsonify({"message": "Error generating tracker data", "error": str(e)}), 500
+
+
+    @app.route('/api/tracker/<dept>', methods=['GET'])
+    @token_required
+    @role_required(['iqc'])
+    def department_details(dept):
+        events = Event.query.filter_by(department=dept, validated=True).all()
+        data = []
+        for e in events:
+            data.append({
+                "id": e.id,
+                "name": e.name,
+                "date": e.date.isoformat() if e.date else None,
+                "category": e.category,
+                "validated": e.validated
+            })
+        return jsonify({"department": dept, "events": data})
+
 
     return app
 

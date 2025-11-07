@@ -26,6 +26,10 @@ class Document(db.Model):
     raw_text = db.Column(db.Text, nullable=True)
     last_error = db.Column(db.Text, nullable=True)
 
+    # ----- NEW: fields used by orchestrator -----
+    category = db.Column(db.String(120), nullable=True)
+    department = db.Column(db.String(120), nullable=True)
+
 class ExtractedEntity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     document_id = db.Column(db.Integer, db.ForeignKey('document.id'), nullable=False)
