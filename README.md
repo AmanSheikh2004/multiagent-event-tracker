@@ -35,10 +35,11 @@ Make sure you have these installed:
     ```
 2.  (Optional but recommended) Create and activate a virtual environment:
     ```bash
+    #only once
     python -m venv venv
-    venv\Scripts\activate    # On Windows
-    # or
-    source venv/bin/activate    # On macOS/Linux
+    #to activate
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+    ./start_backend.ps1
     ```
 3.  Install all required Python packages:
     ```bash

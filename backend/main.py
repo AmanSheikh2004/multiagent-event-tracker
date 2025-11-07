@@ -7,6 +7,9 @@ from werkzeug.utils import secure_filename
 from agents.orchestrator_agent import OrchestratorAgent
 from functools import wraps
 from flask_cors import CORS
+from fpdf import FPDF
+from io import BytesIO
+from flask import send_file
 from flask import send_from_directory, abort
 
 ALLOWED_EXT = {'pdf', 'png', 'jpg', 'jpeg', 'tiff'}
@@ -122,14 +125,28 @@ def create_app():
 
     @app.route('/api/documents', methods=['GET'])
     @token_required
-    def list_docs():
-        user = request.user
-        if user.role=='iqc':
-            docs = Document.query.order_by(Document.uploaded_at.desc()).all()
-        else:
-            docs = Document.query.filter_by(uploaded_by=user.username).order_by(Document.uploaded_at.desc()).all()
-        out = [{'id':d.id,'filename':d.filename,'status':d.status,'uploaded_at':d.uploaded_at.isoformat()} for d in docs]
-        return jsonify(out)
+    def get_documents(current_user):
+        query = Document.query
+
+        # 🧠 Filter by role
+        if current_user.role == 'student':
+            query = query.filter_by(uploaded_by=current_user.username)
+        elif current_user.role == 'teacher':
+            query = query.filter_by(department=current_user.department)
+        elif current_user.role == 'iqc':
+            pass  # IQC sees all
+
+        documents = query.order_by(Document.uploaded_at.desc()).all()
+
+        return jsonify([{
+            "id": d.id,
+            "filename": d.filename,
+            "status": d.status,
+            "uploaded_at": d.uploaded_at.isoformat(),
+            "uploaded_by": d.uploaded_by,
+            "department": d.department
+        } for d in documents])
+
 
     @app.route('/api/document/<int:doc_id>', methods=['GET'])
     @token_required
@@ -263,19 +280,142 @@ def create_app():
 
     @app.route('/api/tracker/<dept>', methods=['GET'])
     @token_required
-    @role_required(['iqc'])
+    @role_required(['iqc', 'teacher', 'student'])
     def department_details(dept):
-        events = Event.query.filter_by(department=dept, validated=True).all()
-        data = []
-        for e in events:
-            data.append({
-                "id": e.id,
-                "name": e.name,
-                "date": e.date.isoformat() if e.date else None,
-                "category": e.category,
-                "validated": e.validated
-            })
-        return jsonify({"department": dept, "events": data})
+        try:
+            categories = ["Seminar", "Workshop", "Competitions", "General Event"]
+            events = Event.query.filter_by(department=dept, validated=True).all()
+
+            # Group events by category
+            grouped = {cat: [] for cat in categories}
+            for e in events:
+                cat = e.category.strip() if e.category else "General Event"
+                if cat not in grouped:
+                    grouped[cat] = []
+                grouped[cat].append({
+                    "id": e.id,
+                    "name": e.name,
+                    "date": e.date.isoformat() if e.date else None,
+                    "category": e.category,
+                    "validated": e.validated
+                })
+
+            return jsonify({"department": dept, "events_by_category": grouped}), 200
+
+        except Exception as e:
+            print("[Department Details Error]", e)
+            return jsonify({"message": "Error fetching department details", "error": str(e)}), 500
+
+    @app.route('/api/tracker/<dept>/report', methods=['GET'])
+    @token_required
+    @role_required(['iqc', 'teacher'])
+    def generate_dept_report(dept):
+        try:
+            # Path to DSU logo
+            logo_path = os.path.join(os.getcwd(), "static", "dsu_logo.png")
+
+            # Fetch validated events
+            categories = ["Seminar", "Workshop", "Competitions", "General Event"]
+            events = Event.query.filter_by(department=dept, validated=True).all()
+
+            grouped = {cat: [] for cat in categories}
+            for e in events:
+                cat = e.category.strip() if e.category else "General Event"
+                if cat not in grouped:
+                    grouped[cat] = []
+                grouped[cat].append(e)
+
+            # -------------------- PDF Creation --------------------
+            pdf = FPDF()
+            pdf.set_auto_page_break(auto=True, margin=15)
+            pdf.add_page()
+
+            # 🏫 Header Section
+            if os.path.exists(logo_path):
+                pdf.image(logo_path, 10, 8, 25)
+
+            pdf.set_xy(40, 10)
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(0, 10, "DAYANANDA SAGAR UNIVERSITY", ln=True, align="C")
+            pdf.set_font("Arial", "B", 14)
+            pdf.cell(0, 8, f"Department of {dept}", ln=True, align="C")
+            pdf.set_font("Arial", "B", 13)
+            pdf.cell(0, 8, "Internal Quality Control (IQC) Report", ln=True, align="C")
+
+            # Blue line
+            pdf.set_draw_color(0, 102, 204)
+            pdf.set_line_width(1)
+            pdf.line(10, 35, 200, 35)
+            pdf.ln(12)
+
+            # Info
+            pdf.set_font("Arial", "", 12)
+            today = datetime.date.today().strftime("%d-%m-%Y")
+            pdf.cell(0, 8, "HOD: ____________________", ln=True)
+            pdf.cell(0, 8, f"Date Generated: {today}", ln=True)
+            pdf.cell(0, 8, f"Total Validated Events: {len(events)}", ln=True)
+            pdf.ln(10)
+
+            # 🧾 Category Sections
+            for cat, cat_events in grouped.items():
+                pdf.set_font("Arial", "B", 13)
+                pdf.set_fill_color(230, 230, 250)
+                pdf.cell(0, 10, f"Category: {cat}", ln=True, fill=True)
+                pdf.set_font("Arial", "B", 11)
+                pdf.set_fill_color(220, 220, 220)
+                pdf.cell(120, 8, "Event Title", border=1, fill=True)
+                pdf.cell(40, 8, "Date", border=1, ln=True, fill=True)
+                pdf.set_font("Arial", "", 11)
+
+                if not cat_events:
+                    pdf.cell(0, 8, "No events in this category.", ln=True)
+                else:
+                    for e in cat_events:
+                        name = (e.name[:60] + "...") if len(e.name) > 60 else e.name
+                        date = e.date.strftime("%d-%m-%Y") if e.date else "N/A"
+                        pdf.cell(120, 8, name, border=1)
+                        pdf.cell(40, 8, date, border=1, ln=True)
+                pdf.ln(8)
+
+            # 🧠 Summary
+            pdf.ln(8)
+            pdf.set_font("Arial", "B", 13)
+            pdf.cell(0, 10, "IQC Review Summary", ln=True)
+            pdf.set_draw_color(0, 102, 204)
+            pdf.set_line_width(0.5)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.ln(8)
+            pdf.set_font("Arial", "", 11)
+            pdf.cell(0, 8, f"Total Events: {len(events)}", ln=True)
+            pdf.cell(0, 8, "Pending Validation: __________", ln=True)
+            pdf.cell(0, 8, "IQC Reviewer: ____________________", ln=True)
+            pdf.cell(0, 8, "Signature: ____________________", ln=True)
+            pdf.cell(0, 8, "Date: ____________________", ln=True)
+            pdf.ln(5)
+
+            # Footer
+            pdf.set_y(-20)
+            pdf.set_font("Arial", "I", 9)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(0, 10, "Generated by IQC Portal - DSU", 0, 0, "C")
+
+            # ✅ Output safely
+            try:
+                pdf_bytes = pdf.output(dest="S").encode("latin-1", "replace")
+            except Exception as enc_err:
+                print("[Encoding Fallback Triggered]", enc_err)
+                pdf_bytes = pdf.output(dest="S").encode("utf-8", "replace")
+
+            pdf_stream = BytesIO(pdf_bytes)
+
+            return send_file(pdf_stream,
+                            mimetype="application/pdf",
+                            as_attachment=True,
+                            download_name=f"{dept}_IQC_Report.pdf")
+
+        except Exception as err:
+            print("[Report Generation Error]", err)
+            return jsonify({"message": "Failed to generate report", "error": str(err)}), 500
 
 
     return app

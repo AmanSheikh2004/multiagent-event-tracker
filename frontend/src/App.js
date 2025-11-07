@@ -10,7 +10,9 @@ import Upload from "./pages/Upload";
 import Tracker from "./pages/Tracker";
 import Validate from "./pages/Validate";
 import Admin from "./pages/Admin";
-import DepartmentTracker from "./pages/DepartmentTracker"; // ✅ NEW IMPORT
+import DepartmentTracker from "./pages/DepartmentTracker";
+import StudentTracker from "./pages/StudentTracker";
+import TeacherTracker from "./pages/TeacherTracker";
 
 function App() {
   return (
@@ -75,6 +77,30 @@ function App() {
               <ProtectedRoute roles={["iqc"]}>
                 <Layout>
                   <DepartmentTracker />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Student Tracker */}
+          <Route
+            path="/student/tracker"
+            element={
+              <ProtectedRoute roles={["student"]}>
+                <Layout>
+                  <StudentTracker />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Teacher Tracker */}
+          <Route
+            path="/teacher/tracker"
+            element={
+              <ProtectedRoute roles={["teacher"]}>
+                <Layout>
+                  <TeacherTracker />
                 </Layout>
               </ProtectedRoute>
             }
