@@ -20,7 +20,6 @@ venv/
 migrations/
 *.bak
 
-# ---- System files ----
 .DS_Store
 Thumbs.db
 
