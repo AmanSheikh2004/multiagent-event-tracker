@@ -232,8 +232,10 @@ Before you begin, make sure you have:
 | Role | Username | Password | Department |
 |------|-----------|-----------|-------------|
 | Student | student1 | student1 | AIML |
-| Teacher | teacher1 | teacher1 | CSE(Core) |
-| IQC Admin | iqc | adminpass | ALL |
+| Student | student1 | student1 | CSE |
+| Teacher | teacher2 | teacher2 | AIML |
+| Teacher | teacher2 | teacher2 | AIML |
+| IQC Admin | iqc | iqc123 | ALL |
 
 ---
 
