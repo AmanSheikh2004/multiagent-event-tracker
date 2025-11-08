@@ -13,3 +13,6 @@ build/
 # OS files
 .DS_Store
 Thumbs.db
+
+backfill_plain_passwords.py
+restore_iqc.py

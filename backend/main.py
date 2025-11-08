@@ -9,8 +9,12 @@ from functools import wraps
 from flask_cors import CORS
 from fpdf import FPDF
 from io import BytesIO
+import secrets
+from werkzeug.security import generate_password_hash
 from flask import send_file
 from flask import send_from_directory, abort
+
+
 
 ALLOWED_EXT = {'pdf', 'png', 'jpg', 'jpeg', 'tiff'}
 
@@ -32,7 +36,6 @@ def create_app():
         @wraps(f)
         def decorated(*args, **kwargs):
             token = None
-            # ✅ Accept token from headers or URL
             if 'Authorization' in request.headers:
                 auth = request.headers['Authorization']
                 if auth.startswith("Bearer "):
@@ -52,8 +55,10 @@ def create_app():
             except Exception as e:
                 return jsonify({'message': 'Token invalid', 'error': str(e)}), 401
 
-            return f(*args, **kwargs)
+            # ✅ Pass user explicitly into the wrapped function
+            return f(user, *args, **kwargs)
         return decorated
+
 
 
     def role_required(roles):
@@ -95,7 +100,7 @@ def create_app():
     @app.route('/api/upload', methods=['POST'])
     @token_required
     @role_required(['student','teacher'])
-    def upload():
+    def upload(current_user):
         if 'file' not in request.files:
             return jsonify({'message':'no file'}), 400
 
@@ -150,7 +155,7 @@ def create_app():
 
     @app.route('/api/document/<int:doc_id>', methods=['GET'])
     @token_required
-    def doc_detail(doc_id):
+    def doc_detail(current_user, doc_id):
         d = Document.query.get_or_404(doc_id)
         ents = [{'label':e.label,'text':e.text,'confidence':e.confidence} for e in d.entities]
         evs = [{'id':ev.id,'name':ev.name,'date':ev.date.isoformat() if ev.date else None,'department':ev.department,'category':ev.category,'validated':ev.validated} for ev in d.events]
@@ -159,7 +164,7 @@ def create_app():
     @app.route('/api/validate/<int:event_id>', methods=['POST'])
     @token_required
     @role_required(['teacher','iqc'])
-    def validate_event(event_id):
+    def validate_event(current_user, event_id):
         data = request.json or {}
         ev = Event.query.get_or_404(event_id)
         ev.name = data.get('name', ev.name)
@@ -178,7 +183,7 @@ def create_app():
 
     @app.route('/api/report/<dept>', methods=['GET'])
     @token_required
-    def report(dept):
+    def report(current_user, dept):
         import csv, io
         events = Event.query.filter_by(department=dept).all()
         si = io.StringIO()
@@ -194,7 +199,7 @@ def create_app():
     @app.route("/api/validate/events", methods=["GET"])
     @token_required
     @role_required(["teacher", "iqc"])
-    def list_pending_events():
+    def list_pending_events(current_user):
         try:
             user = request.user
 
@@ -231,7 +236,7 @@ def create_app():
             
     @app.route('/api/document/<int:doc_id>/file', methods=['GET'])
     @token_required
-    def document_file(doc_id):
+    def document_file(current_user, doc_id):
         d = Document.query.get_or_404(doc_id)
         filename = d.filename
         upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
@@ -248,7 +253,7 @@ def create_app():
     @app.route('/api/tracker', methods=['GET'])
     @token_required
     @role_required(['iqc'])
-    def iqc_tracker():
+    def iqc_tracker(current_user):
         try:
             departments = {
                 "AIML": 10,
@@ -281,7 +286,7 @@ def create_app():
     @app.route('/api/tracker/<dept>', methods=['GET'])
     @token_required
     @role_required(['iqc', 'teacher', 'student'])
-    def department_details(dept):
+    def department_details(current_user, dept):
         try:
             categories = ["Seminar", "Workshop", "Competitions", "General Event"]
             events = Event.query.filter_by(department=dept, validated=True).all()
@@ -309,7 +314,7 @@ def create_app():
     @app.route('/api/tracker/<dept>/report', methods=['GET'])
     @token_required
     @role_required(['iqc', 'teacher'])
-    def generate_dept_report(dept):
+    def generate_dept_report(current_user, dept):
         try:
             # Path to DSU logo
             logo_path = os.path.join(os.getcwd(), "static", "dsu_logo.png")
@@ -418,6 +423,110 @@ def create_app():
             return jsonify({"message": "Failed to generate report", "error": str(err)}), 500
 
 
+    # ------------------ USER MANAGEMENT (IQC ADMIN) ------------------ #
+
+
+    def _generate_temp_password(length=10):
+        return secrets.token_urlsafe(length)[:length]
+
+    @app.route('/api/auth/add_user', methods=['POST'])
+    @token_required
+    @role_required(['iqc'])
+    def add_user(current_user):
+        try:
+            data = request.get_json() or {}
+            username = data.get('username', '').strip()
+            password = data.get('password', '').strip()
+            role = data.get('role', '').strip()
+            department = data.get('department', '').strip()
+
+            if not username or not password or not role:
+                return jsonify({"message": "Missing required fields"}), 400
+
+            # ✅ Check for any existing (possibly undeleted) record
+            existing = User.query.filter_by(username=username).first()
+            if existing:
+                print(f"⚠️ Removing existing user '{username}' before re-creation...")
+                db.session.delete(existing)
+                db.session.commit()
+
+            # ✅ Create fresh user
+            user = User(username=username, role=role, department=department)
+            user.set_password(password)  # sets both password_hash + plain_password
+            db.session.add(user)
+            db.session.commit()
+
+            print(f"✅ Created user '{username}' ({role} - {department}) successfully.")
+            return jsonify({
+                "message": f"User '{username}' created successfully",
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "role": user.role,
+                    "department": user.department,
+                    "plain_password": user.plain_password
+                }
+            }), 201
+
+        except Exception as e:
+            print("[Add User Error]", e)
+            db.session.rollback()
+            return jsonify({"message": "Failed to create user", "error": str(e)}), 500
+
+
+
+    @app.route('/api/auth/users', methods=['GET'])
+    @token_required
+    @role_required(['iqc'])
+    def api_list_users(current_user):
+        users = User.query.all()
+        return jsonify({
+            "users": [
+                {
+                    "id": u.id,
+                    "username": u.username,
+                    "role": u.role,
+                    "department": u.department,
+                    "plain_password": u.plain_password or "N/A"
+                } for u in users
+            ]
+        }), 200
+
+
+
+    @app.route('/api/auth/users/<int:user_id>', methods=['DELETE'])
+    @token_required
+    @role_required(['iqc'])
+    def api_delete_user(current_user, user_id):
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({"message": "User deleted successfully"}), 200
+
+
+    @app.route('/api/auth/users/<int:user_id>/set_password', methods=['POST'])
+    @token_required
+    @role_required(['iqc'])
+    def api_set_password(current_user, user_id):
+        data = request.get_json() or {}
+        new_password = data.get('password')
+
+        if not new_password:
+            return jsonify({"message": "Password is required"}), 400
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"message": "User not found"}), 404
+
+        user.set_password(new_password)
+        db.session.commit()
+
+        return jsonify({"message": f"Password updated for {user.username}"}), 200
+
+
+    
     return app
 
 app = create_app()
