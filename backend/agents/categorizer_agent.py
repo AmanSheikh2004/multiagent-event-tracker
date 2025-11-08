@@ -3,127 +3,136 @@ from datetime import datetime
 
 class CategorizerAgent:
     def __init__(self):
-        # Department detection keywords (AIML prioritized first)
+        print("[Categorizer Agent] Initialized ✅ (Hybrid Smart Version)")
+
+        # --- Department detection ---
         self.department_keywords = {
             "Artificial Intelligence & Machine Learning": [
-                r"\bAIML\b",
-                r"\bAI&ML",
-                r"ARTIFICIAL INTELLIGENCE",
-                r"MACHINE LEARNING",
-                r"DEEP LEARNING",
-                r"NEURAL NETWORKS",
+                r"\bAIML\b", r"\bAI\s*&\s*ML", r"ARTIFICIAL INTELLIGENCE", r"MACHINE LEARNING", r"DEEP LEARNING", r"NEURAL NETWORK"
             ],
             "Computer Science & Engineering": [
-                r"\bCSE\b",
-                r"COMPUTER SCIENCE",
-                r"PROGRAMMING",
-                r"DATA STRUCTURE",
-                r"SOFTWARE ENGINEERING",
+                r"\bCSE\b", r"COMPUTER SCIENCE", r"PROGRAMMING", r"DATA STRUCTURE", r"SOFTWARE ENGINEERING"
             ],
             "Information Science & Engineering": [
-                r"\bISE\b",
-                r"INFORMATION SCIENCE",
-                r"DATA ANALYTICS",
+                r"\bISE\b", r"INFORMATION SCIENCE", r"DATA ANALYTICS", r"DATA MINING"
             ],
             "Electronics & Communication Engineering": [
-                r"\bECE\b",
-                r"ELECTRONICS",
-                r"COMMUNICATION",
-                r"VLSI",
+                r"\bECE\b", r"ELECTRONICS", r"COMMUNICATION", r"VLSI", r"EMBEDDED"
             ],
         }
 
+        # --- Event category detection ---
         self.category_keywords = {
-            "Workshop": ["WORKSHOP", "HANDS-ON", "SEMINAR"],
-            "Conference": ["CONFERENCE", "PAPER", "PROCEEDINGS", "JOURNAL"],
-            "Competition": ["COMPETITION", "HACKATHON", "CONTEST"],
-            "General Event": ["REPORT", "PROJECT", "ACTIVITY", "EVENT"],
+            "Workshop": ["WORKSHOP", "HANDS-ON", "TRAINING", "BOOTCAMP"],
+            "Conference": ["CONFERENCE", "SYMPOSIUM", "SUMMIT", "PROCEEDINGS"],
+            "Competition": ["COMPETITION", "CONTEST", "HACKATHON", "QUIZ"],
+            "Guest Lecture": ["GUEST LECTURE", "INVITED TALK", "EXPERT SESSION"],
+            "Orientation": ["ORIENTATION", "INDUCTION", "WELCOME PROGRAM"],
         }
 
-    # --- NEW: Event name extraction ---
-    def extract_event_name(self, text):
+        # --- Research / report detection ---
+        self.research_keywords = [
+            "ABSTRACT", "INTRODUCTION", "CONCLUSION", "RESULTS", "METHODOLOGY",
+            "STUDY", "REVIEW", "EXPERIMENT", "DATASET", "ANALYSIS"
+        ]
+
+    # --- Extract Event Title ---
+    def extract_event_name(self, text: str):
         lines = [l.strip() for l in text.split("\n") if l.strip()]
 
-        # ✅ Step 1: Try to find title inside parentheses like (Ultrares: ...)
+        # Look for title indicators
         for line in lines:
-            match = re.search(r"\(([^)]+)\)", line)
-            if match and len(match.group(1).split()) > 2:
-                return match.group(1).strip()
+            if re.match(r"^(title|project|event|seminar|topic)\s*[:\-]", line, re.IGNORECASE):
+                title = re.sub(r"^(title|project|event|seminar|topic)\s*[:\-]*\s*", "", line, flags=re.IGNORECASE)
+                if 5 <= len(title.split()) <= 15:
+                    return title.title()
 
-        # ✅ Step 2: Try explicit keywords like Title / Project / Paper
-        for line in lines:
-            if re.search(r"(title|project|paper|seminar|report|event)", line, re.IGNORECASE):
-                clean = re.sub(r"^(title|project|paper|seminar|report|event)\s*[:\-]*\s*", "", line, flags=re.IGNORECASE)
-                if 3 < len(clean.split()) < 15:
-                    return clean.strip()
-
-        # ✅ Step 3: Try any line with a colon (e.g. Ultrares: Boosting Image Quality ...)
+        # Title candidates (short but informative)
         for line in lines:
             if ":" in line and len(line.split()) < 15:
-                return line.strip()
+                return line.title()
 
-        # ✅ Step 4: Fallback: first all-caps line or short title-like line
         for line in lines:
-            if len(line) > 8 and len(line.split()) < 15 and sum(1 for c in line if c.isupper()) > 5:
-                return line.strip()
+            if line.isupper() and 5 < len(line.split()) < 15:
+                return line.title()
 
-        # ✅ Step 5: Final fallback: first short sentence before a period
-        sentences = re.split(r'\.|\n', text)
+        # fallback — first decent sentence
+        sentences = re.split(r"[.:\n]", text)
         for s in sentences:
-            if 8 < len(s) < 120:
-                return s.strip()
+            if 5 < len(s.split()) < 15:
+                return s.strip().title()
 
-        return "Unknown"
-
+        return "Unknown Event"
 
     def categorize(self, text: str):
+        if not text or len(text.strip()) < 10:
+            return {
+                "event_name": "Unknown",
+                "department": "Unknown",
+                "category": "General",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "confidence": 0.5
+            }
+
         text_upper = text.upper()
 
-        # --- Department Detection ---
+        # --- Department detection ---
         detected_dept = "Unknown"
         for dept, patterns in self.department_keywords.items():
-            for p in patterns:
-                if re.search(p, text_upper):
-                    detected_dept = dept
-                    break
-            if detected_dept != "Unknown":
+            if any(re.search(p, text_upper) for p in patterns):
+                detected_dept = dept
                 break
-
-        # AIML takes priority if mentioned
         if "ARTIFICIAL INTELLIGENCE" in text_upper or "MACHINE LEARNING" in text_upper:
             detected_dept = "Artificial Intelligence & Machine Learning"
 
-        # --- Category Detection ---
-        detected_cat = "General Event"
+        # --- Event vs Research vs General categorization ---
+        detected_cat = "General"
+        event_score, research_score = 0, 0
+
+        # Event indicators
         for cat, patterns in self.category_keywords.items():
             if any(re.search(p, text_upper) for p in patterns):
                 detected_cat = cat
-                break
+                event_score += 2
 
-        # --- Date Extraction (fallback to today if not found) ---
-        date_match = re.search(r"(\d{1,2}[\/\-\.\s](?:\d{1,2}|[A-Za-z]+)[\/\-\.\s]\d{2,4})", text)
-        if date_match:
-            extracted_date = date_match.group(1)
-        else:
-            extracted_date = datetime.now().strftime("%Y-%m-%d")
+        # Research indicators
+        for kw in self.research_keywords:
+            if re.search(rf"\b{kw}\b", text_upper):
+                research_score += 2
 
-        # --- Event Name Extraction ---
+        # Determine dominant category
+        if research_score > event_score + 2:
+            detected_cat = "Research/Report"
+        elif event_score == 0 and research_score == 0:
+            detected_cat = "General Event"
+
+        # --- Date detection ---
+        date_match = re.search(r"(\d{1,2}[/\-\.\s](?:\d{1,2}|[A-Za-z]+)[/\-\.\s]\d{2,4})", text)
+        extracted_date = date_match.group(1) if date_match else datetime.now().strftime("%Y-%m-%d")
+
+        # --- Event name / title ---
         event_name = self.extract_event_name(text)
 
-        # --- Normalize Department Short Codes ---
+        # --- Normalize department short codes ---
         dept_map = {
             "Artificial Intelligence & Machine Learning": "AIML",
             "Computer Science & Engineering": "CSE(Core)",
             "Information Science & Engineering": "ISE",
             "Electronics & Communication Engineering": "ECE",
         }
-
         short_dept = dept_map.get(detected_dept, detected_dept)
+
+        # --- Confidence calculation ---
+        confidence = 0.6
+        if detected_dept != "Unknown":
+            confidence += 0.15
+        if detected_cat not in ["General", "General Event"]:
+            confidence += 0.15
 
         return {
             "event_name": event_name,
             "department": short_dept,
             "category": detected_cat,
             "date": extracted_date,
+            "confidence": round(min(confidence, 1.0), 2),
         }
-

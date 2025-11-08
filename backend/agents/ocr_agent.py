@@ -1,100 +1,139 @@
 import os
-import re
 import fitz  # PyMuPDF
+import tempfile
 from paddleocr import PaddleOCR
-
 
 class OcrAgent:
     def __init__(self):
-        print("[OCR Agent] Initializing smart hybrid OCR...")
-        self.ocr = PaddleOCR(lang='en')
-        print("[OCR Agent] Ready ✅")
+        print("[OCR Agent] 🚀 Initializing hybrid OCR (Text + Image + Title Detection)")
+        try:
+            # PaddleOCR tuned for speed and general-purpose English text
+            self.ocr = PaddleOCR(
+                use_angle_cls=False,  # skip rotation correction for speed
+                lang="en",
+                show_log=False
+            )
+            print("[OCR Agent] ✅ PaddleOCR initialized successfully")
+        except Exception as e:
+            print(f"[OCR Agent] ❌ Initialization failed: {e}")
+            raise
 
     def extract_text(self, file_path):
-        """
-        Hybrid OCR: intelligently extracts title + abstract/introduction.
-        Uses PyMuPDF for text-based PDFs and PaddleOCR for scanned pages.
-        """
+        """Extracts text and title from PDFs or images intelligently."""
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        print(f"[OCR Agent] Processing {file_path} ...")
-        pdf = fitz.open(file_path)
-        all_text = ""
+        results = []
 
-        # Extract only first 5 pages (performance optimization)
-        for page_num, page in enumerate(pdf):
-            if page_num > 4:
-                break
+        # 🧩 Case 1: Image file input (png, jpg, jpeg)
+        if file_path.lower().endswith((".png", ".jpg", ".jpeg")):
+            ocr_result = self.ocr.ocr(file_path)
+            text = self._parse_ocr_result(ocr_result)
+            title = self._extract_title_from_text(text)
+            return {"text": text, "title": title, "source": "image"}
 
-            text = page.get_text("text")
-            if len(text.strip()) > 100:
-                all_text += "\n" + text
-            else:
-                # Fallback to OCR if no text layer found
-                pix = page.get_pixmap(dpi=150)
-                img_bytes = pix.tobytes("png")
-                result = self.ocr.ocr(img_bytes, det=True, rec=True)
-                page_text = " ".join([line[1][0] for line in result[0]]) if result and result[0] else ""
-                all_text += "\n" + page_text
+        # 🧩 Case 2: PDF input
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf = fitz.open(file_path)
+            title = self._extract_title_from_pdf(pdf)
 
-        pdf.close()
+            for i, page in enumerate(pdf):
+                # Try direct text extraction first
+                text = page.get_text("text")
 
-        text = re.sub(r'\s+', ' ', all_text).strip()
-        title = self._extract_title(text)
-        abstract = self._extract_abstract(text)
+                # If text layer exists → skip OCR
+                if text and len(text.strip()) > 30:
+                    results.append({
+                        "page": i + 1,
+                        "text": text.strip(),
+                        "source": "digital"
+                    })
+                    continue
 
-        return f"{title}\n\n{abstract}\n\n{text[:1500]}"
+                # Otherwise → fallback to OCR
+                pix = page.get_pixmap(dpi=100)  # lower DPI for speed
+                img_path = os.path.join(tmpdir, f"page_{i+1}.png")
+                pix.save(img_path)
 
-    def _extract_title(self, text):
-        """
-        Detects the project/event title based on patterns and capitalization.
-        """
-        # Try for “titled” or “project” phrases
-        match = re.search(r'(?:titled|title[:\s]+)[“"]?([^“”"]{5,150})[”"]?', text, re.I)
-        if match:
-            return match.group(1).strip().title()
+                ocr_result = self.ocr.ocr(img_path)
+                ocr_text = self._parse_ocr_result(ocr_result)
 
-        match = re.search(r'(?:project|paper|seminar)[:\s]+([A-Z][A-Z0-9 :&,\-()]{5,150})', text)
-        if match:
-            return match.group(1).title().strip()
+                results.append({
+                    "page": i + 1,
+                    "text": ocr_text,
+                    "source": "ocr"
+                })
 
-        # Try to find all-caps lines that look like titles (but skip universities)
-        caps = re.findall(r'\b([A-Z][A-Z0-9 :\-&]{5,100})\b', text[:1000])
-        for line in caps:
-            if 10 < len(line) < 100 and not re.search(r'UNIVERSITY|ENGINEERING|COLLEGE|TECHNOLOGY', line):
-                return line.title().strip()
+        # Combine all pages
+        full_text = "\n".join([r["text"] for r in results])
+        print(f"[OCR Agent] 🧾 Extracted text from {len(results)} pages.")
+        return {"text": full_text, "title": title, "source": "pdf"}
 
-        # Fallback to the first meaningful line
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
-        for line in lines[:10]:
-            if len(line) > 5 and not re.search(r"(department|college|bachelor|technology|university)", line, re.I):
+    # -----------------------------
+    # 🔹 Parse PaddleOCR output
+    # -----------------------------
+    def _parse_ocr_result(self, ocr_result):
+        """Convert PaddleOCR output to plain text."""
+        if not ocr_result or not ocr_result[0]:
+            return ""
+        lines = []
+        for line in ocr_result[0]:
+            if line and len(line) > 1:
+                lines.append(line[1][0].strip())
+        return "\n".join(lines)
+
+    # -----------------------------
+    # 🔹 Extract probable title from text
+    # -----------------------------
+    def _extract_title_from_text(self, text):
+        """Find the most probable title line based on length and formatting."""
+        if not text:
+            return ""
+        lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 5]
+        for line in lines[:5]:
+            if len(line.split()) >= 3 and len(line.split()) <= 12:
+                return line.title()
+        return lines[0].title() if lines else ""
+
+    # -----------------------------
+    # 🔹 Extract title from PDF layout
+    # -----------------------------
+    def _extract_title_from_pdf(self, pdf):
+        """Use font size and layout to detect title (fast heuristic)."""
+        try:
+            page = pdf[0]
+            d = page.get_text("dict")
+            best_span = None
+            best_size = 0
+            for block in d.get("blocks", []):
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        text = span.get("text", "").strip()
+                        size = span.get("size", 0)
+                        if not text or len(text) < 3:
+                            continue
+                        if size > best_size and len(text.split()) <= 12:
+                            best_span = text
+                            best_size = size
+            if best_span:
+                title = " ".join(best_span.split())
+                print(f"[OCR Agent] 📘 Detected title: {title}")
+                return title
+        except Exception as e:
+            print(f"[OCR Agent] ⚠️ Title detection failed: {e}")
+
+        # Fallback: first non-empty line from text layer
+        text = pdf[0].get_text("text")
+        for line in text.split("\n"):
+            if len(line.strip()) > 5:
                 return line.strip().title()
+        return "Untitled Document"
 
-        return "Untitled Event"
-
-    def _extract_abstract(self, text):
-        """
-        Extracts abstract or introduction intelligently while skipping certificate/acknowledgment.
-        """
-        # Skip certificate/acknowledgment parts
-        text = re.sub(r'.*?(ACKNOWLEDGEMENT|CERTIFICATE)', '', text, flags=re.I | re.S)
-
-        # Extract Abstract
-        match = re.search(r'(?:ABSTRACT|Abstract)[:\s]+([\s\S]{0,1000}?)(?=\s[A-Z ]{3,}|INTRODUCTION|CHAPTER|$)', text)
-        if match:
-            return re.sub(r'\s+', ' ', match.group(1)).strip()
-
-        # Or extract Introduction
-        match = re.search(r'(?:INTRODUCTION|Introduction)[:\s]+([\s\S]{0,1000}?)(?=\s[A-Z ]{3,}|CHAPTER|$)', text)
-        if match:
-            return re.sub(r'\s+', ' ', match.group(1)).strip()
-
-        return "No abstract or introduction detected."
-
+    # -----------------------------
+    # 🔹 Debug preview (optional)
+    # -----------------------------
     def summarize_extracted_text(self, text):
-        """
-        Produces a condensed summary (first 2000 chars).
-        """
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
-        return " ".join(lines)[:2000]
+        """Preview of the first few lines for quick debug."""
+        preview = "\n".join(text.split("\n")[:10])
+        print(f"[OCR Agent] 📄 Preview:\n{preview}")
+        return preview
