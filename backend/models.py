@@ -8,13 +8,17 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    plain_password = db.Column(db.String(120), nullable=True)  # 🔹 visible only in dev
     role = db.Column(db.String(50), nullable=False)  # student, teacher, iqc
     department = db.Column(db.String(120), nullable=True)  # AIML, CSE(Core), ALL
 
     def set_password(self, password):
+        from werkzeug.security import generate_password_hash
         self.password_hash = generate_password_hash(password)
+        self.plain_password = password  # 🔹 store plaintext for dev
 
     def check_password(self, password):
+        from werkzeug.security import check_password_hash
         return check_password_hash(self.password_hash, password)
 
 class Document(db.Model):

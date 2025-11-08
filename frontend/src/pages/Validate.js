@@ -2,6 +2,22 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 
+const DEPARTMENTS = [
+  { value: "AIML", label: "Artificial Intelligence & Machine Learning" },
+  { value: "CSE(Core)", label: "Computer Science & Engineering (Core)" },
+  { value: "ISE", label: "Information Science & Engineering" },
+  { value: "ECE", label: "Electronics & Communication Engineering" },
+  { value: "AERO", label: "Aeronautical Engineering" },
+];
+
+const EVENT_TYPES = [
+  { value: "Seminar", label: "Seminar" },
+  { value: "Workshop", label: "Workshop" },
+  { value: "Competitions", label: "Competitions" },
+  { value: "General Event", label: "General Event" },
+];
+
+
 function DocumentModal({ open, onClose, docId, token, onValidated }) {
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -69,18 +85,48 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
             <span className="text-sm font-medium">Event Name:</span>
             <input value={name} onChange={(e) => setName(e.target.value)} className="border p-2 w-full rounded" />
           </label>
-          <label className="block">
-            <span className="text-sm font-medium">Date:</span>
-            <input value={date} onChange={(e) => setDate(e.target.value)} className="border p-2 w-full rounded" />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium">Category:</span>
-            <input value={category} onChange={(e) => setCategory(e.target.value)} className="border p-2 w-full rounded" />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium">Department:</span>
-            <input value={department} onChange={(e) => setDepartment(e.target.value)} className="border p-2 w-full rounded" />
-          </label>
+          {/* Date Picker */}
+        <label className="block">
+          <span className="text-sm font-medium">Date:</span>
+          <input
+            type="date"
+            value={date ? date.slice(0, 10) : ""}
+            onChange={(e) => setDate(e.target.value)}
+            className="border p-2 w-full rounded"
+          />
+        </label>
+        {/* Event Type Dropdown */}
+        <label className="block">
+          <span className="text-sm font-medium">Event Type:</span>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="border p-2 w-full rounded"
+          >
+            <option value="">-- Select Event Type --</option>
+            {EVENT_TYPES.map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {/* Department Dropdown */}
+        <label className="block">
+          <span className="text-sm font-medium">Department:</span>
+          <select
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            className="border p-2 w-full rounded"
+          >
+            <option value="">-- Select Department --</option>
+            {DEPARTMENTS.map((dept) => (
+              <option key={dept.value} value={dept.value}>
+                {dept.label}
+              </option>
+            ))}
+          </select>
+        </label>
         </div>
 
         <div className="mt-4">

@@ -8,3 +8,4 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', str(BASE_DIR/'static'/'uploads'))
     JWT_SECRET = os.environ.get('JWT_SECRET', 'jwt-secret-key')
+    DEV_MODE = True  # Toggle off in production
