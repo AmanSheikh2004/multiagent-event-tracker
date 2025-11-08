@@ -3,28 +3,39 @@ import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 
 const DEPARTMENTS = [
-  { value: "AIML", label: "Artificial Intelligence & Machine Learning" },
+  { value: "AIML", label: "Artificial Intelligence & Machine Learning (AIML)" },
   { value: "CSE(Core)", label: "Computer Science & Engineering (Core)" },
-  { value: "ISE", label: "Information Science & Engineering" },
-  { value: "ECE", label: "Electronics & Communication Engineering" },
-  { value: "AERO", label: "Aeronautical Engineering" },
+  { value: "ISE", label: "Information Science & Engineering (ISE)" },
+  { value: "ECE", label: "Electronics & Communication Engineering (ECE)" },
+  { value: "AERO", label: "Aeronautical Engineering (AERO)" },
 ];
 
 const EVENT_TYPES = [
   { value: "Seminar", label: "Seminar" },
-  { value: "Workshop", label: "Workshop" },
-  { value: "Competitions", label: "Competitions" },
-  { value: "General Event", label: "General Event" },
+  { value: "Workshop", label: "Workshop / Hands-on / Training" },
+  { value: "Guest Lecture", label: "Guest Lecture / Expert Talk" },
+  { value: "Conference", label: "Conference / Symposium" },
+  { value: "Competition", label: "Competition / Hackathon / Quiz" },
+  { value: "Orientation", label: "Orientation / Induction / Welcome" },
+  { value: "Research/Report", label: "Research / Report / Paper Presentation" },
+  { value: "General Event", label: "General / Department Activity" },
 ];
 
 
 function DocumentModal({ open, onClose, docId, token, onValidated }) {
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [name, setName] = useState("");
-  const [date, setDate] = useState("");
-  const [category, setCategory] = useState("");
-  const [department, setDepartment] = useState("");
+  const [errors, setErrors] = useState([]);
+
+  const [form, setForm] = useState({
+    name: "",
+    date: "",
+    category: "",
+    department: "",
+    venue: "",
+    organizer: "",
+    abstract: "",
+  });
 
   useEffect(() => {
     if (!open || !docId) return;
@@ -34,14 +45,22 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
         const res = await axios.get(`http://localhost:5000/api/document/${docId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        setDoc(res.data);
-        if (res.data.events && res.data.events.length > 0) {
-          const ev = res.data.events[0];
-          setName(ev.name || "");
-          setDate(ev.date || "");
-          setCategory(ev.category || "");
-          setDepartment(ev.department || "");
-        }
+        const data = res.data;
+        setDoc(data);
+
+        if (data.events?.[0]) {
+          const ev = data.events[0];
+          setForm({
+            name: ev.name || "",
+            date: ev.date || "",
+            category: ev.category || "",
+            department: ev.department || "",
+            venue: ev.venue || "",
+            organizer: ev.organizer || "",
+            abstract: data.abstract || "",  // ✅ use extracted abstract
+          });
+        } 
+
       } catch (err) {
         console.error("Failed to load document", err);
       } finally {
@@ -50,99 +69,153 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
     })();
   }, [open, docId, token]);
 
-  if (!open) return null;
+  const handleChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
 
   const handleValidate = async () => {
     try {
       const evId = doc.events[0].id;
-      await axios.post(
+      const res = await axios.post(
         `http://localhost:5000/api/validate/${evId}`,
-        { name, date, category, department },
-        { headers: { Authorization: `Bearer ${token}` } }
+        form,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
-      onValidated(evId);
-      onClose();
-      alert("✅ Event validated!");
+
+      if (res.data.errors?.length) {
+        setErrors(res.data.errors);
+        alert("⚠️ Please fix the highlighted fields.");
+      } else {
+        alert("✅ Event validated successfully!");
+        onValidated(evId);
+        onClose();
+      }
     } catch (e) {
       console.error("Validation failed", e);
       alert("Validation failed!");
     }
   };
 
+  if (!open) return null;
+
   const fileUrl = `http://localhost:5000/api/document/${docId}/file?token=${token}`;
 
+  const fieldStyle = (key) =>
+    errors.some((err) => err.toLowerCase().includes(key)) ? "border-red-500" : "border-gray-300";
 
   return (
     <div className="fixed inset-0 flex items-start justify-center p-6 z-50">
       <div className="absolute inset-0 bg-black opacity-40" onClick={onClose}></div>
       <div className="bg-white rounded-lg p-6 shadow-xl relative z-50 w-full max-w-3xl max-h-[85vh] overflow-auto">
-        <h2 className="text-xl font-bold mb-3">Document Review</h2>
+        <h2 className="text-xl font-bold mb-3">Document Review & Validation</h2>
         <a href={fileUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
           📄 Open Uploaded File
         </a>
+
+        {errors.length > 0 && (
+          <div className="bg-red-50 border border-red-400 text-red-600 p-2 mt-3 rounded text-sm">
+            <strong>⚠ Validation Issues:</strong>
+            <ul className="list-disc ml-5">
+              {errors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="mt-4 space-y-2">
           <label className="block">
             <span className="text-sm font-medium">Event Name:</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} className="border p-2 w-full rounded" />
+            <input
+              value={form.name}
+              onChange={(e) => handleChange("name", e.target.value)}
+              className={`border p-2 w-full rounded ${fieldStyle("event name")}`}
+            />
           </label>
-          {/* Date Picker */}
-        <label className="block">
-          <span className="text-sm font-medium">Date:</span>
-          <input
-            type="date"
-            value={date ? date.slice(0, 10) : ""}
-            onChange={(e) => setDate(e.target.value)}
-            className="border p-2 w-full rounded"
-          />
-        </label>
-        {/* Event Type Dropdown */}
-        <label className="block">
-          <span className="text-sm font-medium">Event Type:</span>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="border p-2 w-full rounded"
-          >
-            <option value="">-- Select Event Type --</option>
-            {EVENT_TYPES.map((type) => (
-              <option key={type.value} value={type.value}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {/* Department Dropdown */}
-        <label className="block">
-          <span className="text-sm font-medium">Department:</span>
-          <select
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            className="border p-2 w-full rounded"
-          >
-            <option value="">-- Select Department --</option>
-            {DEPARTMENTS.map((dept) => (
-              <option key={dept.value} value={dept.value}>
-                {dept.label}
-              </option>
-            ))}
-          </select>
-        </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Date:</span>
+            <input
+              type="date"
+              value={form.date ? form.date.slice(0, 10) : ""}
+              onChange={(e) => handleChange("date", e.target.value)}
+              className={`border p-2 w-full rounded ${fieldStyle("date")}`}
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Event Type:</span>
+            <select
+              value={form.category}
+              onChange={(e) => handleChange("category", e.target.value)}
+              className={`border p-2 w-full rounded ${fieldStyle("category")}`}
+            >
+              <option value="">-- Select Event Type --</option>
+              {EVENT_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Department:</span>
+            <select
+              value={form.department}
+              onChange={(e) => handleChange("department", e.target.value)}
+              className={`border p-2 w-full rounded ${fieldStyle("department")}`}
+            >
+              <option value="">-- Select Department --</option>
+              {DEPARTMENTS.map((dept) => (
+                <option key={dept.value} value={dept.value}>
+                  {dept.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Venue:</span>
+            <input
+              value={form.venue}
+              onChange={(e) => handleChange("venue", e.target.value)}
+              className={`border p-2 w-full rounded ${fieldStyle("venue")}`}
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Organizer:</span>
+            <input
+              value={form.organizer}
+              onChange={(e) => handleChange("organizer", e.target.value)}
+              className={`border p-2 w-full rounded ${fieldStyle("organizer")}`}
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Abstract:</span>
+            <textarea
+              value={form.abstract}
+              onChange={(e) => handleChange("abstract", e.target.value)}
+              className={`border p-2 w-full rounded ${fieldStyle("abstract")}`}
+              rows={4}
+            />
+          </label>
         </div>
 
         <div className="mt-4">
-          <h3 className="font-semibold">Extracted Text</h3>
-          <pre className="bg-gray-50 border p-3 rounded text-sm overflow-auto max-h-40">
-            {doc?.document?.raw_text || "No extracted text available."}
-          </pre>
-        </div>
-
-        <div className="mt-4">
-          <h3 className="font-semibold">Entities</h3>
-          <ul className="list-disc pl-5">
+          <h3 className="font-semibold">Extracted Entities</h3>
+          <ul className="list-disc pl-5 text-sm">
             {doc?.entities?.length ? (
               doc.entities.map((e, i) => (
                 <li key={i}>
-                  <strong>{e.label}</strong>: {e.text} (conf: {e.confidence})
+                  <strong>{e.entity_type}</strong>: {e.entity_value} (conf: {e.confidence})
                 </li>
               ))
             ) : (
@@ -153,7 +226,7 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
 
         <div className="flex justify-end gap-2 mt-6">
           <button onClick={handleValidate} className="bg-green-600 text-white px-4 py-2 rounded">
-            Validate & Save
+            ✅ Validate & Save
           </button>
           <button onClick={onClose} className="bg-gray-300 px-4 py-2 rounded">
             Close
@@ -220,9 +293,9 @@ export default function Validate() {
                       setSelectedDocId(e.document_id);
                       setModalOpen(true);
                     }}
-                    className="bg-blue-600 text-white px-3 py-1 rounded mr-2"
+                    className="bg-blue-600 text-white px-3 py-1 rounded"
                   >
-                    View
+                    Review
                   </button>
                 </td>
               </tr>

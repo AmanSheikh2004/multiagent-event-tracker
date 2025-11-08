@@ -13,7 +13,8 @@ import secrets
 from werkzeug.security import generate_password_hash
 from flask import send_file
 from flask import send_from_directory, abort
-
+from agents.validator_agent import ValidatorAgent
+validator_agent = ValidatorAgent()
 
 
 ALLOWED_EXT = {'pdf', 'png', 'jpg', 'jpeg', 'tiff'}
@@ -26,8 +27,16 @@ def create_app():
     db.init_app(app)
     migrate = Migrate(app, db)
 
-    # ✅ Enable CORS for frontend requests (localhost:3000)
-    CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": "*"}},
+        supports_credentials=True,
+        allow_headers=["Content-Type", "Authorization"],
+        methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"]
+    )
+
+
 
     orchestrator = OrchestratorAgent()
 
@@ -157,28 +166,48 @@ def create_app():
     @token_required
     def doc_detail(current_user, doc_id):
         d = Document.query.get_or_404(doc_id)
-        ents = [{'label':e.label,'text':e.text,'confidence':e.confidence} for e in d.entities]
-        evs = [{'id':ev.id,'name':ev.name,'date':ev.date.isoformat() if ev.date else None,'department':ev.department,'category':ev.category,'validated':ev.validated} for ev in d.events]
-        return jsonify({'document':{'id':d.id,'filename':d.filename,'status':d.status,'raw_text':d.raw_text}, 'entities':ents, 'events':evs})
 
-    @app.route('/api/validate/<int:event_id>', methods=['POST'])
-    @token_required
-    @role_required(['teacher','iqc'])
-    def validate_event(current_user, event_id):
-        data = request.json or {}
-        ev = Event.query.get_or_404(event_id)
-        ev.name = data.get('name', ev.name)
-        date_str = data.get('date', None)
-        if date_str:
-            try:
-                ev.date = datetime.date.fromisoformat(date_str)
-            except:
-                pass
-        ev.department = data.get('department', ev.department)
-        ev.category = data.get('category', ev.category)
-        ev.validated = True
-        db.session.commit()
-        return jsonify({'message':'validated'})
+        # Basic entities
+        ents = [{
+            "entity_type": e.entity_type,
+            "entity_value": e.entity_value,
+            "confidence": e.confidence
+        } for e in d.entities]
+
+        # Related events
+        evs = [{
+            "id": ev.id,
+            "name": ev.name,
+            "date": ev.date.isoformat() if ev.date else None,
+            "department": ev.department,
+            "category": ev.category,
+            "validated": ev.validated
+        } for ev in d.events]
+
+        # 🧩 New helper — fetch entity value by name
+        def get_entity_value(name):
+            for e in d.entities:
+                if e.entity_type.lower() == name.lower():
+                    return e.entity_value
+            return ""
+
+        # 🧩 Return all + new fields (abstract, venue, organizer)
+        return jsonify({
+            "document": {
+                "id": d.id,
+                "filename": d.filename,
+                "status": d.status,
+                "raw_text": d.raw_text
+            },
+            "entities": ents,
+            "events": evs,
+            "abstract": get_entity_value("abstract"),
+            "venue": get_entity_value("venue"),
+            "organizer": get_entity_value("organizer")
+        })
+
+
+
 
 
     @app.route('/api/report/<dept>', methods=['GET'])
@@ -316,19 +345,40 @@ def create_app():
     @role_required(['iqc', 'teacher'])
     def generate_dept_report(current_user, dept):
         try:
-            # Path to DSU logo
+            from fpdf import FPDF
+            import datetime
+            from io import BytesIO
+            import os
+
+            # ✅ Path to DSU logo
             logo_path = os.path.join(os.getcwd(), "static", "dsu_logo.png")
 
-            # Fetch validated events
-            categories = ["Seminar", "Workshop", "Competitions", "General Event"]
+            # ✅ Full standardized event categories (same as frontend Validate.js)
+            EVENT_CATEGORIES = [
+                "Seminar",
+                "Workshop / Hands-on / Training",
+                "Guest Lecture / Expert Talk",
+                "Conference / Symposium",
+                "Competition / Hackathon / Quiz",
+                "Orientation / Induction / Welcome",
+                "Research / Report / Paper Presentation",
+                "General / Department Activity",
+            ]
+
+            # ✅ Fetch validated events for the department
             events = Event.query.filter_by(department=dept, validated=True).all()
 
-            grouped = {cat: [] for cat in categories}
+            # ✅ Group events by their closest category
+            grouped = {cat: [] for cat in EVENT_CATEGORIES}
             for e in events:
-                cat = e.category.strip() if e.category else "General Event"
-                if cat not in grouped:
-                    grouped[cat] = []
-                grouped[cat].append(e)
+                matched = False
+                for cat in EVENT_CATEGORIES:
+                    if cat.split("/")[0].strip().lower() in e.category.lower():
+                        grouped[cat].append(e)
+                        matched = True
+                        break
+                if not matched:
+                    grouped["General / Department Activity"].append(e)
 
             # -------------------- PDF Creation --------------------
             pdf = FPDF()
@@ -340,37 +390,38 @@ def create_app():
                 pdf.image(logo_path, 10, 8, 25)
 
             pdf.set_xy(40, 10)
-            pdf.set_font("Arial", "B", 16)
+            pdf.set_font("Times", "B", 18)
             pdf.cell(0, 10, "DAYANANDA SAGAR UNIVERSITY", ln=True, align="C")
-            pdf.set_font("Arial", "B", 14)
+            pdf.set_font("Times", "B", 15)
             pdf.cell(0, 8, f"Department of {dept}", ln=True, align="C")
-            pdf.set_font("Arial", "B", 13)
+            pdf.set_font("Times", "B", 14)
             pdf.cell(0, 8, "Internal Quality Control (IQC) Report", ln=True, align="C")
 
-            # Blue line
+            # Blue line under heading
             pdf.set_draw_color(0, 102, 204)
             pdf.set_line_width(1)
             pdf.line(10, 35, 200, 35)
             pdf.ln(12)
 
-            # Info
-            pdf.set_font("Arial", "", 12)
+            # 🕓 Report Info Section
+            pdf.set_font("Times", "", 12)
             today = datetime.date.today().strftime("%d-%m-%Y")
             pdf.cell(0, 8, "HOD: ____________________", ln=True)
             pdf.cell(0, 8, f"Date Generated: {today}", ln=True)
             pdf.cell(0, 8, f"Total Validated Events: {len(events)}", ln=True)
             pdf.ln(10)
 
-            # 🧾 Category Sections
+            # 📑 Category Sections
             for cat, cat_events in grouped.items():
-                pdf.set_font("Arial", "B", 13)
+                pdf.set_font("Times", "B", 13)
                 pdf.set_fill_color(230, 230, 250)
                 pdf.cell(0, 10, f"Category: {cat}", ln=True, fill=True)
-                pdf.set_font("Arial", "B", 11)
+
+                pdf.set_font("Times", "B", 12)
                 pdf.set_fill_color(220, 220, 220)
                 pdf.cell(120, 8, "Event Title", border=1, fill=True)
                 pdf.cell(40, 8, "Date", border=1, ln=True, fill=True)
-                pdf.set_font("Arial", "", 11)
+                pdf.set_font("Times", "", 12)
 
                 if not cat_events:
                     pdf.cell(0, 8, "No events in this category.", ln=True)
@@ -382,15 +433,16 @@ def create_app():
                         pdf.cell(40, 8, date, border=1, ln=True)
                 pdf.ln(8)
 
-            # 🧠 Summary
+            # 📘 Summary Section
             pdf.ln(8)
-            pdf.set_font("Arial", "B", 13)
+            pdf.set_font("Times", "B", 14)
             pdf.cell(0, 10, "IQC Review Summary", ln=True)
             pdf.set_draw_color(0, 102, 204)
             pdf.set_line_width(0.5)
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             pdf.ln(8)
-            pdf.set_font("Arial", "", 11)
+
+            pdf.set_font("Times", "", 12)
             pdf.cell(0, 8, f"Total Events: {len(events)}", ln=True)
             pdf.cell(0, 8, "Pending Validation: __________", ln=True)
             pdf.cell(0, 8, "IQC Reviewer: ____________________", ln=True)
@@ -398,9 +450,9 @@ def create_app():
             pdf.cell(0, 8, "Date: ____________________", ln=True)
             pdf.ln(5)
 
-            # Footer
+            # Footer Section
             pdf.set_y(-20)
-            pdf.set_font("Arial", "I", 9)
+            pdf.set_font("Times", "I", 10)
             pdf.set_text_color(100, 100, 100)
             pdf.cell(0, 10, "Generated by IQC Portal - DSU", 0, 0, "C")
 
@@ -413,22 +465,20 @@ def create_app():
 
             pdf_stream = BytesIO(pdf_bytes)
 
-            return send_file(pdf_stream,
-                            mimetype="application/pdf",
-                            as_attachment=True,
-                            download_name=f"{dept}_IQC_Report.pdf")
+            return send_file(
+                pdf_stream,
+                mimetype="application/pdf",
+                as_attachment=True,
+                download_name=f"{dept}_IQC_Report.pdf"
+            )
 
         except Exception as err:
             print("[Report Generation Error]", err)
             return jsonify({"message": "Failed to generate report", "error": str(err)}), 500
 
 
+
     # ------------------ USER MANAGEMENT (IQC ADMIN) ------------------ #
-
-
-    def _generate_temp_password(length=10):
-        return secrets.token_urlsafe(length)[:length]
-
     @app.route('/api/auth/add_user', methods=['POST'])
     @token_required
     @role_required(['iqc'])
@@ -526,6 +576,52 @@ def create_app():
         return jsonify({"message": f"Password updated for {user.username}"}), 200
 
 
+    @app.route('/api/validate/<int:event_id>', methods=['POST'])
+    @token_required
+    @role_required(['teacher', 'iqc'])
+    def validate_event(current_user, event_id):
+        try:
+            event = Event.query.get_or_404(event_id)
+            data = request.get_json() or {}
+            print("[Validate Debug] Incoming JSON:", data)
+
+            # Build a validation packet
+            validation_input = {
+                "event": {
+                    "event_name": data.get("name"),
+                    "date": data.get("date"),
+                    "category": data.get("category"),
+                    "department": data.get("department"),
+                },
+                "entities": {
+                    "venue": data.get("venue"),
+                    "organizer": data.get("organizer"),
+                    "abstract": data.get("abstract"),
+                }
+            }
+
+            # Run validation
+            result = validator_agent.process(validation_input)
+
+            # If valid → update event
+            if result["status"] == "ok":
+                event.name = data.get("name")
+                event.date = datetime.datetime.strptime(data.get("date"), "%Y-%m-%d").date()
+                event.category = data.get("category")
+                event.department = data.get("department")
+                event.validated = True
+                db.session.commit()
+
+                print(f"[Validate] ✅ Event {event.id} validated successfully by {current_user.username}")
+                return jsonify({"message": "validated", "errors": []}), 200
+
+            else:
+                print(f"[Validate] ⚠ Validation issues for event {event.id}: {result['errors']}")
+                return jsonify({"message": "validation_failed", "errors": result["errors"]}), 400
+
+        except Exception as e:
+            print("[Validate] ❌ Error:", e)
+            return jsonify({"message": "Validation failed", "error": str(e)}), 500
     
     return app
 
