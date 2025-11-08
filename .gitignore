@@ -17,7 +17,6 @@ venv/
 *.pdb
 *.tmp
 
-# ---- Flask Migrations ----
 migrations/
 *.bak
 
