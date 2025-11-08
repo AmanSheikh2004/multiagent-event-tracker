@@ -233,7 +233,7 @@ Before you begin, make sure you have:
 |------|-----------|-----------|-------------|
 | Student | student1 | student1 | AIML |
 | Student | student1 | student1 | CSE |
-| Teacher | teacher2 | teacher2 | AIML |
+| Teacher | teacher1 | teacher1 | CSE |
 | Teacher | teacher2 | teacher2 | AIML |
 | IQC Admin | iqc | iqc123 | ALL |
 
