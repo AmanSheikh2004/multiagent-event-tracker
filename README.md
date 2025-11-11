@@ -1,25 +1,8 @@
-# Multi-Agent Event Tracker System
+# 🧠 Multi-Agent AI Event Tracker (Final Build)
 
-A comprehensive event tracking platform powered by multiple intelligent agents for document processing, entity extraction, and event validation. The system combines OCR, NLP, and intelligent categorization to automate event management across university departments.
+An AI-powered document intelligence system built using **Flask + React**, integrating multiple specialized agents for automatic **OCR**, **NER**, **categorization**, and **validation** of uploaded academic event reports and project documents.
 
-## 📋 Project Overview
-
-The Multi-Agent Event Tracker is designed for Dayananda Sagar University (DSU) to:
-- Process event-related documents using OCR and AI agents
-- Extract event details (names, dates, venues, organizers)
-- Automatically categorize events by type and department
-- Validate and track events across multiple departments
-- Generate comprehensive IQC (Internal Quality Control) reports
-
-### Key Features
-
-- **Multi-Agent Architecture**: Orchestrated OCR, NER, Categorizer, and Validator agents
-- **Role-Based Access Control**: Student, Teacher, and IQC admin roles
-- **Document Processing**: Support for PDF, PNG, JPG, JPEG, TIFF formats
-- **Automated Entity Extraction**: Intelligent extraction of event metadata
-- **Event Validation Workflow**: Two-tier approval system (Teacher → IQC)
-- **Department-Wide Tracking**: Real-time progress monitoring
-- **PDF Report Generation**: Professional IQC reports with department summaries
+This system supports intelligent extraction of text from both **scanned PDFs and digital reports**, automatically identifies the **event type, department, and abstract**, and stores results in a structured database.
 
 ---
 
@@ -158,204 +141,151 @@ npm install
 
 #### 3. Start Development Server
 
-\`\`\`bash
-npm start
-\`\`\`
-
-The frontend will open at `http://localhost:3000`
+**Backend:** Flask, SQLAlchemy, PaddleOCR, spaCy, JWT Authentication  
+**Frontend:** React, TailwindCSS, Chart.js  
+**Database:** SQLite (default, extensible to PostgreSQL/MySQL)  
+**AI Agents:** OCR | NER | Categorizer | Validator  
+**Roles:** Student | Teacher | IQC Admin  
 
 ---
 
-## 📚 API Documentation
-
-### Authentication
-
-All API endpoints (except `/api/init` and `/api/ping`) require JWT authentication.
-
-**Login Endpoint:**
-\`\`\`http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "username": "student1",
-  "password": "student1"
-}
-\`\`\`
-
-**Response:**
-\`\`\`json
-{
-  "token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "user": {
-    "username": "student1",
-    "role": "student",
-    "department": "AIML"
-  }
-}
-\`\`\`
-
-### Key Endpoints
-
-#### Documents
-
-- `POST /api/upload` - Upload document (multipart/form-data)
-- `GET /api/documents` - List documents (role-filtered)
-- `GET /api/document/<id>` - Get document details with entities and events
-- `GET /api/document/<id>/file` - Download original document
+## 🚀 Setup Guide
 
 #### Events
 
-- `GET /api/validate/events` - List pending validation events
-- `POST /api/validate/<event_id>` - Validate and save event
-- `GET /api/tracker` - Get department progress (IQC only)
-- `GET /api/tracker/<dept>` - Get events by department and category
-- `GET /api/tracker/<dept>/report` - Generate PDF report for department
+Before you begin, make sure you have:
 
-#### User Management (IQC Admin)
-
-- `POST /api/auth/add_user` - Create new user
-- `GET /api/auth/users` - List all users
-- `DELETE /api/auth/users/<id>` - Delete user
-- `POST /api/auth/users/<id>/set_password` - Update user password
+- 🐍 **Python 3.10+** (3.11 recommended)
+- ⚙️ **Node.js 18+**
+- 📦 **npm** or **yarn**
+- 🧭 **Git**
 
 ---
 
-## 🗄️ Database Schema
+## 🖥️ Backend Setup (Flask)
 
-### Users Table
-\`\`\`sql
-users
-├── id (PK)
-├── username (unique)
-├── password_hash
-├── plain_password (dev only)
-├── role (student|teacher|iqc)
-└── department
-\`\`\`
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
 
-### Documents Table
-\`\`\`sql
-documents
-├── id (PK)
-├── filename
-├── uploaded_by
-├── uploaded_at
-├── status (uploaded|processing|needs_review|saved|failed)
-├── raw_text
-├── last_error
-├── category
-└── department
-\`\`\`
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   # for PowerShell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\venv\Scripts\activate
+   ```
 
-### Events Table
-\`\`\`sql
-events
-├── id (PK)
-├── document_id (FK)
-├── name
-├── date
-├── department
-├── category
-└── validated (boolean)
-\`\`\`
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### Extracted Entities Table
-\`\`\`sql
-extracted_entities
-├── id (PK)
-├── document_id (FK)
-├── label (entity_type)
-├── text
-└── confidence
-\`\`\`
+4. Install the spaCy English model:
+   ```bash
+   pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1.tar.gz
+   ```
+
+5. Initialize or upgrade your database:
+   ```bash
+   flask db upgrade
+   ```
+
+6. (Optional) Initialize default users:
+   ```bash
+   POST http://localhost:5000/api/init
+   ```
+
+7. Start the backend server:
+   ```bash
+   python main.py
+   ```
+   The backend will run at:  
+   👉 `http://localhost:5000`
 
 ---
 
-## 🎯 User Roles & Workflows
+## 🌐 Frontend Setup (React)
 
-### Student Role
-- Upload event documents
-- View their own uploaded documents
-- View validated events from their department
+1. Open a new terminal and go to the frontend directory:
+   ```bash
+   cd frontend
+   ```
 
-### Teacher Role
-- Validate events from their department
-- Review document details before validation
-- Access department-specific reports
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-### IQC Admin Role
-- View and manage all documents and events
-- Validate events from any department
-- Create and manage user accounts
-- Generate comprehensive IQC reports
-- Track department progress via dashboard
-
----
-
-## 🔧 Configuration
-
-Edit `backend/config.py` to customize:
-
-\`\`\`python
-# Database URL (default: SQLite)
-SQLALCHEMY_DATABASE_URI = "sqlite:///app.db"
-
-# Upload folder for documents
-UPLOAD_FOLDER = "static/uploads"
-
-# JWT secret for token signing
-JWT_SECRET = "your-secret-key"
-
-# Enable development mode
-DEV_MODE = True
-\`\`\`
-
-### Environment Variables
-
-\`\`\`bash
-# Optional - Override defaults
-SECRET_KEY=your-secret-key
-DATABASE_URL=sqlite:///app.db
-JWT_SECRET=your-jwt-secret
-UPLOAD_FOLDER=static/uploads
-\`\`\`
+3. Start the frontend:
+   ```bash
+   npm start
+   ```
+   Access the app at:  
+   👉 `http://localhost:3000`
 
 ---
 
-## 📊 Supported Event Categories
+## 🔑 Default Login Credentials
 
-The system recognizes the following event categories:
-
-1. **Seminar**
-2. **Workshop / Hands-on / Training**
-3. **Guest Lecture / Expert Talk**
-4. **Conference / Symposium**
-5. **Competition / Hackathon / Quiz**
-6. **Orientation / Induction / Welcome**
-7. **Research / Report / Paper Presentation**
-8. **General / Department Activity**
+| Role | Username | Password | Department |
+|------|-----------|-----------|-------------|
+| Student | student1 | student1 | AIML |
+| Teacher | teacher1 | teacher1 | CSE(Core) |
+| IQC Admin | iqc | adminpass | ALL |
 
 ---
 
-## 📁 File Formats Supported
+## 🤖 AI Multi-Agent Pipeline
 
-- **PDF** - Portable Document Format
-- **PNG** - Raster image format
-- **JPG/JPEG** - JPEG raster format
-- **TIFF** - Tagged Image File Format
+| Step | Agent | Function |
+|------|--------|-----------|
+| 1️⃣ | **OCR Agent** | Extracts text from PDFs or images using PaddleOCR (hybrid for digital + scanned) |
+| 2️⃣ | **NER Agent** | Extracts event details (name, date, venue, organizer, department) |
+| 3️⃣ | **Categorizer Agent** | Classifies document into Workshop / Conference / Report / etc. |
+| 4️⃣ | **Validator Agent** | Checks field completeness & format (e.g., missing abstract/date) |
+| 5️⃣ | **Database** | Persists document, event, and extracted entities |
 
 ---
 
-## 🧪 Testing
+## 🧩 Key Features
 
-### Initialize Test Data
+- 📄 Upload event or project reports (PDF / Image)
+- 🧠 Hybrid OCR using **PaddleOCR** (auto-detects text layer)
+- 💡 Intelligent NER (named entity recognition via spaCy)
+- 🗂️ Event categorization (e.g., Workshop, Competition, Research Report)
+- 🧾 Abstract extraction and validation
+- 👨‍🏫 Multi-role dashboard (Student, Teacher, IQC Admin)
+- 📊 Department-wise progress tracking
+- 🔒 JWT-based authentication
+- 📦 CSV report generation
 
-\`\`\`bash
-curl -X POST http://localhost:5000/api/init
-\`\`\`
+---
 
-### Test Login
+## 🧰 Common Commands
+
+### Rebuild Environment
+```bash
+rmdir /s /q venv
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Database Reset
+```bash
+flask db init
+flask db migrate
+flask db upgrade
+```
+
+### Clean Cache / Build
+```bash
+git clean -fdx
+```
+
+---
 
 \`\`\`bash
 curl -X POST http://localhost:5000/api/auth/login \
@@ -363,88 +293,35 @@ curl -X POST http://localhost:5000/api/auth/login \
   -d '{"username":"student1","password":"student1"}'
 \`\`\`
 
-### Test Document Upload
-
-\`\`\`bash
-TOKEN="your_jwt_token_here"
-curl -X POST http://localhost:5000/api/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@event_document.pdf"
-\`\`\`
-
----
-
-## 🐛 Troubleshooting
-
-### Issue: PaddleOCR Download Takes Long Time
-**Solution**: PaddleOCR models are downloaded on first use. Set cache directory:
-\`\`\`bash
-export PADDLE_CACHE_HOME=/path/to/cache
-\`\`\`
-
-### Issue: spaCy Model Not Found
-**Solution**: Ensure you've downloaded the model:
-\`\`\`bash
-python -m spacy download en_core_web_sm
-\`\`\`
-
-### Issue: Database Locked Error
-**Solution**: SQLite has concurrency issues. For production, migrate to PostgreSQL:
-\`\`\`bash
-SQLALCHEMY_DATABASE_URI = "postgresql://user:pass@localhost/dbname"
-\`\`\`
-
-### Issue: CORS Errors
-**Solution**: Backend CORS is configured for all origins. Update for production:
-\`\`\`python
-CORS(app, resources={r"/api/*": {"origins": ["https://yourdomain.com"]}})
-\`\`\`
+| Problem | Solution |
+|----------|-----------|
+| **OCR too slow** | Reduce DPI in `ocr_agent.py` (`pix = page.get_pixmap(dpi=100)`) |
+| **OCR init failed** | Run `pip install paddleocr paddlepaddle` manually |
+| **spaCy model missing** | Reinstall with the model tar.gz link above |
+| **CORS / Proxy issue** | Ensure frontend `package.json` has `"proxy": "http://localhost:5000"` |
+| **Login fails** | Run `/api/init` endpoint to recreate default users |
 
 ---
 
-## 🚢 Deployment
+## 🌿 Git Workflow (Team Collaboration)
 
-### Backend Deployment (Gunicorn + Nginx)
-
-1. **Install Gunicorn** (included in requirements.txt)
-
-2. **Create Systemd Service** (`/etc/systemd/system/iqc-tracker.service`):
-\`\`\`ini
-[Unit]
-Description=IQC Event Tracker Backend
-After=network.target
-
-[Service]
-Type=notify
-User=www-data
-WorkingDirectory=/path/to/backend
-ExecStart=/path/to/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 4 main:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-\`\`\`
-
-3. **Start Service**:
-\`\`\`bash
-sudo systemctl start iqc-tracker
-sudo systemctl enable iqc-tracker
-\`\`\`
-
-### Frontend Deployment
-
-1. **Build for Production**:
-\`\`\`bash
-npm run build
-\`\`\`
-
-2. **Deploy Build Folder** to your hosting service (Vercel, Netlify, AWS S3, etc.)
+1. Pull latest code:
+   ```bash
+   git pull origin main
+   ```
+2. Create your branch:
+   ```bash
+   git checkout -b aman-feature
+   ```
+3. After edits:
+   ```bash
+   git add .
+   git commit -m "Updated OCR and orchestrator pipeline"
+   git push origin aman-feature
+   ```
+4. Open a Pull Request on GitHub for review & merge.
 
 ---
-
-## 📝 License
-
-This project is proprietary software for Dayananda Sagar University.
 
 ---
 
@@ -456,35 +333,6 @@ For issues or questions, contact the development team or create an issue in the 
 
 ## 📌 Version History
 
-- **v1.0.0** (Current)
-  - Multi-agent event processing pipeline
-  - Role-based access control
-  - PDF report generation
-  - Real-time event tracking
-  - Full REST API
-
----
-
-## 🎓 Technology Stack
-
-### Backend
-- **Framework**: Flask 2.3.3
-- **Database**: SQLite (SQLAlchemy ORM)
-- **OCR**: PaddleOCR 2.7.0.2
-- **NLP**: spaCy 3.7.2, Transformers 4.43.3
-- **Auth**: PyJWT 2.8.0
-- **PDF**: PyMuPDF, reportlab, fpdf
-- **Server**: Gunicorn 20.1.0
-
-### Frontend
-- **Framework**: React 18.2.0
-- **Routing**: React Router v6
-- **Charts**: Chart.js + react-chartjs-2
-- **HTTP Client**: Axios
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
-
-### Infrastructure
-- **Database**: SQLite (dev) → PostgreSQL (production)
-- **Web Server**: Nginx + Gunicorn
-- **Message Queue**: Optional (Celery for async processing)
+Developed by **Aman Sheikh**  
+as part of a *Pattern Recognition and Machine Learning* case study.  
+Free to use for academic and educational purposes.
