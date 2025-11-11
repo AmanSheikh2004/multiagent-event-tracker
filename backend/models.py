@@ -37,8 +37,8 @@ class Document(db.Model):
 class ExtractedEntity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     document_id = db.Column(db.Integer, db.ForeignKey('document.id'), nullable=False)
-    label = db.Column(db.String(100))  # EVENT_NAME, DATE, DEPARTMENT, CATEGORY
-    text = db.Column(db.Text)
+    entity_type = db.Column(db.String(100))  # EVENT_NAME, DATE, DEPARTMENT, CATEGORY
+    entity_value = db.Column(db.Text)
     confidence = db.Column(db.Float, default=0.0)
 
     document = db.relationship('Document', backref='entities')
@@ -51,5 +51,11 @@ class Event(db.Model):
     department = db.Column(db.String(120))
     category = db.Column(db.String(120))  # Faculty Event, Student Event, Student Quiz
     validated = db.Column(db.Boolean, default=False)
+    type = db.Column(db.String(50), default="Report")  # Report or Certificate
+
+    # 🆕 New fields for IQC validation feedback
+    status = db.Column(db.String(50), default="pending")  # "pending", "validated", "rejected"
+    reviewer_comment = db.Column(db.Text, nullable=True)
 
     document = db.relationship('Document', backref='events')
+

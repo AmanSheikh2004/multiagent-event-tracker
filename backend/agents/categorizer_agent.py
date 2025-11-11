@@ -64,6 +64,55 @@ class CategorizerAgent:
 
         return "Unknown Event"
 
+        # --- Detect if document is a Certificate or Report ---
+    def detect_doc_type(self, text: str):
+        """Detect whether document is a Certificate or Report."""
+        if not text or len(text.strip()) < 10:
+            return "Unknown"
+
+        text_upper = text.upper()
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        top_region = " ".join(lines[:25])
+
+        # 🔹 Certificate clues
+        certificate_phrases = [
+            "CERTIFICATE", "THIS IS TO CERTIFY", "AWARDED TO",
+            "PRESENTED TO", "HAS SUCCESSFULLY COMPLETED",
+            "CERTIFICATE OF COMPLETION", "CERTIFICATE OF APPRECIATION",
+            "CERTIFICATE OF PARTICIPATION", "IS HEREBY CERTIFIED"
+        ]
+
+        # 🔹 Report cues
+        report_phrases = [
+            "REPORT", "PROJECT REPORT", "FINAL REPORT", "SUMMARY",
+            "INTRODUCTION", "CONCLUSION", "ANALYSIS", "RESULTS", "STUDY"
+        ]
+
+        # 1️⃣ If “CERTIFICATE” appears near the top → Certificate
+        for phrase in certificate_phrases:
+            if phrase in top_region:
+                return "Certificate"
+
+        # 2️⃣ If strong certificate phrases appear anywhere → Certificate
+        for phrase in certificate_phrases:
+            if re.search(rf"\b{phrase}\b", text_upper):
+                return "Certificate"
+
+        # 3️⃣ If “report” phrases dominate
+        report_hits = sum(phrase in text_upper for phrase in report_phrases)
+        cert_hits = sum(phrase in text_upper for phrase in certificate_phrases)
+
+        if report_hits > cert_hits:
+            return "Report"
+
+        # 4️⃣ Short document heuristic (1-2 pages → likely certificate)
+        if len(text) < 7000 and cert_hits > 0:
+            return "Certificate"
+
+        # Default fallback
+        return "Report"
+
+
     def categorize(self, text: str):
         if not text or len(text.strip()) < 10:
             return {
@@ -129,10 +178,15 @@ class CategorizerAgent:
         if detected_cat not in ["General", "General Event"]:
             confidence += 0.15
 
+            # --- Detect if document is Certificate or Report ---
+        doc_type = self.detect_doc_type(text)
+
         return {
             "event_name": event_name,
             "department": short_dept,
             "category": detected_cat,
             "date": extracted_date,
             "confidence": round(min(confidence, 1.0), 2),
+            "doc_type": self.detect_doc_type(text),
         }
+
