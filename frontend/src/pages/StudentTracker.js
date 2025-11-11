@@ -6,6 +6,7 @@ export default function StudentTracker() {
   const { token, user } = useContext(AuthContext);
   const [events, setEvents] = useState({});
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [rejectedEvents, setRejectedEvents] = useState([]);
 
   useEffect(() => {
     const fetchDeptEvents = async () => {
@@ -19,6 +20,21 @@ export default function StudentTracker() {
       }
     };
     fetchDeptEvents();
+  }, [user, token]);
+
+  useEffect(() => {
+    const fetchRejected = async () => {
+      try {
+        const res = await axios.get(
+          `http://localhost:5000/api/tracker/rejected/${user.username}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setRejectedEvents(res.data.rejected_events || []);
+      } catch (err) {
+        console.error("Failed to fetch rejected events", err);
+      }
+    };
+    fetchRejected();
   }, [user, token]);
 
   const total = 10;
@@ -41,6 +57,57 @@ export default function StudentTracker() {
         ></div>
       </div>
 
+      {/* ---------------------------
+          Rejected Events - single section
+          --------------------------- */}
+      <div className="mb-8">
+        <div className="bg-red-50 rounded-lg shadow-md p-5 border border-red-300">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-semibold text-red-700">Rejected Events</h2>
+            <p className="text-sm text-red-500">{rejectedEvents.length} rejected</p>
+          </div>
+
+          {rejectedEvents.length === 0 ? (
+            <p className="text-gray-600 text-sm italic">No rejected events 🎉</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border text-sm">
+                <thead className="bg-red-100">
+                  <tr>
+                    <th className="border px-3 py-2">Event Name</th>
+                    <th className="border px-3 py-2">Date</th>
+                    <th className="border px-3 py-2">Category</th>
+                    <th className="border px-3 py-2">Reviewer Comment</th>
+                    <th className="border px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rejectedEvents.map((e) => (
+                    <tr key={e.id} className="border-t hover:bg-red-50">
+                      <td className="border px-3 py-2">{e.name}</td>
+                      <td className="border px-3 py-2">{e.date || "N/A"}</td>
+                      <td className="border px-3 py-2">{e.category}</td>
+                      <td className="border px-3 py-2 text-red-600 font-medium">{e.comment}</td>
+                      <td className="border px-3 py-2 text-center">
+                        <button
+                          onClick={() => setSelectedEvent(e)}
+                          className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700"
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ---------------------------
+          Validated / categorized events (unchanged)
+          --------------------------- */}
       {Object.keys(events).length === 0 ? (
         <p>No validated events yet.</p>
       ) : (
@@ -57,6 +124,7 @@ export default function StudentTracker() {
                     <th className="border px-3 py-2">Event Name</th>
                     <th className="border px-3 py-2">Date</th>
                     <th className="border px-3 py-2">Category</th>
+                    <th className="border px-3 py-2">Type</th>
                     <th className="border px-3 py-2 text-center">Action</th>
                   </tr>
                 </thead>
@@ -66,6 +134,7 @@ export default function StudentTracker() {
                       <td className="border px-3 py-2">{e.name}</td>
                       <td className="border px-3 py-2">{e.date || "N/A"}</td>
                       <td className="border px-3 py-2">{e.category}</td>
+                      <td className="border px-3 py-2">{e.type || "Report"}</td>
                       <td className="border px-3 py-2 text-center">
                         <button
                           onClick={() => setSelectedEvent(e)}
@@ -90,6 +159,7 @@ export default function StudentTracker() {
             <p><strong>Name:</strong> {selectedEvent.name}</p>
             <p><strong>Date:</strong> {selectedEvent.date || "N/A"}</p>
             <p><strong>Category:</strong> {selectedEvent.category}</p>
+            <p><strong>Type:</strong> {selectedEvent.type || "Report"}</p>
             <p><strong>Department:</strong> {user.department}</p>
             <div className="text-right mt-5">
               <button

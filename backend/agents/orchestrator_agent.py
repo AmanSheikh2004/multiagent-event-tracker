@@ -52,24 +52,33 @@ class OrchestratorAgent:
                 raw_text = ocr_output
                 detected_title = None
 
-            summary_text = ocr.summarize_extracted_text(raw_text)
+            # Keep the full OCR text intact
+            full_text = raw_text
+            summary_text = ocr.summarize_extracted_text(raw_text)  # used only for preview in UI
 
             # ---------- 2️⃣ NER ----------
             ner = NerAgent()
-            ner_output = ner.process({"raw_text": raw_text})
+            ner_output = ner.process({"raw_text": full_text})
 
+            # ---------- 3️⃣ Categorizer ----------
+            cat = CategorizerAgent()
+            classification = cat.categorize(f"{detected_title or ''}\n{full_text}")
+
+            category = classification.get("category", "General Event")
+            classified_dept = classification.get("department", ner_output.get("department") or "General")
+            doc_type = classification.get("doc_type", "Report")
+            if "CERTIFICATE" in full_text.upper() and "REPORT" not in full_text.upper():
+                doc_type = "Certificate"
+
+
+            print(f"[Orchestrator] 🏅 Detected Document Type: {doc_type}")
+
+            # Extract fields from NER
             event_name = ner_output.get("event_name")
             event_date = ner_output.get("date")
             department = ner_output.get("department")
             venue = ner_output.get("venue")
             organizer = ner_output.get("organizer")
-
-            # ---------- 3️⃣ Categorizer ----------
-            cat = CategorizerAgent()
-            classification = cat.categorize(raw_text)
-
-            category = classification.get("category", "General Event")
-            classified_dept = classification.get("department", department or "General")
 
             # Normalize date
             if isinstance(event_date, str):
@@ -98,7 +107,7 @@ class OrchestratorAgent:
                 abstract = "Abstract not found."
 
             # ---------- 5️⃣ Save Document ----------
-            doc.raw_text = summary_text
+            doc.raw_text = full_text
             doc.department = classified_dept
             doc.category = category
             doc.status = "needs_review"
@@ -112,7 +121,8 @@ class OrchestratorAgent:
                 date=event_date_obj,
                 department=classified_dept,
                 category=category,
-                validated=False
+                validated=False,
+                type=doc_type  # 🆕 save doc type
             )
             db.session.add(event)
             db.session.commit()
@@ -138,7 +148,7 @@ class OrchestratorAgent:
                     db.session.add(e)
             db.session.commit()
 
-            print(f"[Orchestrator] ✅ Processed '{title.strip()}' ({category}, {classified_dept})")
+            print(f"[Orchestrator] ✅ Processed '{title.strip()}' ({doc_type}, {classified_dept}, {category})")
             print(f"[Orchestrator] 🧩 Abstract: {abstract[:120]}...")
 
         except Exception as e:

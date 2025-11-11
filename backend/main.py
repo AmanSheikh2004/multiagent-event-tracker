@@ -134,7 +134,12 @@ def create_app():
         orchestrator.process_document(doc.id)
 
         print(f"[Upload] Document {filename} marked as 'needs_review' for validation.")
-        return jsonify({'message': 'uploaded', 'document_id': doc.id})
+        return jsonify({
+            "success": True,
+            "message": f"Document {filename} marked as 'needs_review' for validation.",
+            "document_id": doc.id
+        }), 200
+
 
 
     @app.route('/api/documents', methods=['GET'])
@@ -339,6 +344,42 @@ def create_app():
         except Exception as e:
             print("[Department Details Error]", e)
             return jsonify({"message": "Error fetching department details", "error": str(e)}), 500
+        
+    # 🧩 New: Fetch rejected events for a given student
+    @app.route('/api/tracker/rejected/<username>', methods=['GET'])
+    @token_required
+    @role_required(['student'])
+    def rejected_events(current_user, username):
+        try:
+            # Ensure student can only see their own
+            if current_user.username != username:
+                return jsonify({"message": "Forbidden"}), 403
+
+            events = (
+                Event.query
+                .join(Document, Event.document_id == Document.id)
+                .filter(Document.uploaded_by == username, Event.status == "rejected")
+                .all()
+            )
+
+            return jsonify({
+                "rejected_events": [
+                    {
+                        "id": e.id,
+                        "name": e.name,
+                        "date": e.date.isoformat() if e.date else None,
+                        "category": e.category,
+                        "department": e.department,
+                        "comment": e.reviewer_comment or "No comment provided",
+                    }
+                    for e in events
+                ]
+            }), 200
+
+        except Exception as e:
+            print("[Rejected Tracker Error]", e)
+            return jsonify({"message": "Error fetching rejected events", "error": str(e)}), 500
+
 
     @app.route('/api/tracker/<dept>/report', methods=['GET'])
     @token_required
@@ -622,6 +663,32 @@ def create_app():
         except Exception as e:
             print("[Validate] ❌ Error:", e)
             return jsonify({"message": "Validation failed", "error": str(e)}), 500
+    
+    @app.route('/api/validate/<int:event_id>/reject', methods=['POST'])
+    @token_required
+    @role_required(['teacher', 'iqc'])
+    def reject_event(current_user, event_id):
+        try:
+            data = request.get_json() or {}
+            comment = data.get("comment", "No reason provided.")
+            event = Event.query.get_or_404(event_id)
+
+            # Update event status
+            event.validated = False
+            event.status = "rejected"
+            event.reviewer_comment = comment
+            db.session.commit()
+
+            print(f"[Reject] ❌ Event {event.id} rejected by {current_user.username} - {comment}")
+
+            return jsonify({
+                "message": "Event rejected successfully.",
+                "comment": comment
+            }), 200
+        except Exception as e:
+            print("[Reject] ❌ Error:", e)
+            return jsonify({"message": "Reject failed", "error": str(e)}), 500
+
     
     return app
 

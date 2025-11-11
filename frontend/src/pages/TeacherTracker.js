@@ -102,6 +102,7 @@ export default function TeacherTracker() {
                     <th className="border px-3 py-2">Event Name</th>
                     <th className="border px-3 py-2">Date</th>
                     <th className="border px-3 py-2">Category</th>
+                    <th className="border px-3 py-2">Type</th>
                     <th className="border px-3 py-2 text-center">Action</th>
                   </tr>
                 </thead>
@@ -111,6 +112,7 @@ export default function TeacherTracker() {
                       <td className="border px-3 py-2">{e.name}</td>
                       <td className="border px-3 py-2">{e.date || "N/A"}</td>
                       <td className="border px-3 py-2">{e.category}</td>
+                      <td className="border px-3 py-2">{e.type || "Report"}</td>
                       <td className="border px-3 py-2 text-center">
                         <button
                           onClick={() => setSelectedEvent(e)}
@@ -135,6 +137,7 @@ export default function TeacherTracker() {
             <p><strong>Name:</strong> {selectedEvent.name}</p>
             <p><strong>Date:</strong> {selectedEvent.date || "N/A"}</p>
             <p><strong>Category:</strong> {selectedEvent.category}</p>
+            <p><strong>Type:</strong> {selectedEvent.type || "Report"}</p>
             <p><strong>Department:</strong> {user.department}</p>
             <div className="text-right mt-5">
               <button

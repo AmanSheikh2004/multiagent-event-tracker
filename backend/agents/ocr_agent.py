@@ -51,7 +51,7 @@ class OcrAgent:
                     continue
 
                 # Otherwise → fallback to OCR
-                pix = page.get_pixmap(dpi=100)  # lower DPI for speed
+                pix = page.get_pixmap(dpi=150)
                 img_path = os.path.join(tmpdir, f"page_{i+1}.png")
                 pix.save(img_path)
 

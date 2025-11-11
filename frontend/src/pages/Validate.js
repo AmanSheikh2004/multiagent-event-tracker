@@ -35,6 +35,7 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
     venue: "",
     organizer: "",
     abstract: "",
+    comment: "",
   });
 
   useEffect(() => {
@@ -100,6 +101,29 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
       alert("Validation failed!");
     }
   };
+
+  const handleReject = async () => {
+    if (!window.confirm("Are you sure you want to mark this document as NOT valid?")) return;
+
+    try {
+      const evId = doc.events[0].id;
+      const res = await axios.post(
+        `http://localhost:5000/api/validate/${evId}/reject`,
+        { comment: form.comment || "Rejected by reviewer." },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (res.status === 200) {
+        alert("❌ Document marked as NOT valid. Student will be notified.");
+        onValidated(evId);
+        onClose();
+      }
+    } catch (e) {
+      console.error("Rejection failed", e);
+      alert("Rejection failed!");
+    }
+  };
+
 
   if (!open) return null;
 
@@ -224,14 +248,37 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           </ul>
         </div>
 
-        <div className="flex justify-end gap-2 mt-6">
-          <button onClick={handleValidate} className="bg-green-600 text-white px-4 py-2 rounded">
-            ✅ Validate & Save
-          </button>
-          <button onClick={onClose} className="bg-gray-300 px-4 py-2 rounded">
-            Close
-          </button>
+        <div className="mt-6 space-y-2">
+          <label className="block">
+            <span className="text-sm font-medium">Reviewer Comment (Optional):</span>
+            <textarea
+              value={form.comment || ""}
+              onChange={(e) => handleChange("comment", e.target.value)}
+              placeholder="Add a note explaining rejection or feedback..."
+              className="border p-2 w-full rounded text-sm"
+              rows={3}
+            />
+          </label>
+
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={handleValidate}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+            >
+              ✅ Validate & Save
+            </button>
+            <button
+              onClick={handleReject}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+            >
+              ❌ Discard / Not Valid
+            </button>
+            <button onClick={onClose} className="bg-gray-300 px-4 py-2 rounded">
+              Close
+            </button>
+          </div>
         </div>
+
       </div>
     </div>
   );
@@ -274,6 +321,7 @@ export default function Validate() {
               <th className="p-2 border">Event Name</th>
               <th className="p-2 border">Date</th>
               <th className="p-2 border">Category</th>
+              <th className="p-2 border">Type</th>
               <th className="p-2 border">Department</th>
               <th className="p-2 border">Uploaded By</th>
               <th className="p-2 border">Action</th>
@@ -285,6 +333,7 @@ export default function Validate() {
                 <td className="p-2 border">{e.name || "Unknown"}</td>
                 <td className="p-2 border">{e.date || "N/A"}</td>
                 <td className="p-2 border">{e.category || "General"}</td>
+                <td className="p-2 border">{e.type || "Report"}</td>
                 <td className="p-2 border">{e.department || "Unknown"}</td>
                 <td className="p-2 border">{e.uploaded_by}</td>
                 <td className="p-2 border text-center">

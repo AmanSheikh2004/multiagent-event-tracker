@@ -3,6 +3,7 @@ import React, { useContext } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 import { Home, Upload, ClipboardCheck, FileText, BarChart3 } from "lucide-react";
+import dsuLogo from "../assets/dsu_logo.png";
 
 const Sidebar = () => {
   const { user } = useContext(AuthContext);
@@ -24,6 +25,7 @@ const Sidebar = () => {
       { name: "Tracker", icon: <BarChart3 size={18} />, onClick: handleTrackerClick },
     ],
     teacher: [
+      { path: "/teacher/upload", name: "Upload", icon: <Upload size={18} /> },
       { path: "/validate", name: "Validate", icon: <ClipboardCheck size={18} /> },
       { name: "Tracker", icon: <BarChart3 size={18} />, onClick: handleTrackerClick },
     ],
@@ -38,9 +40,15 @@ const Sidebar = () => {
 
   return (
     <aside className="w-60 bg-gray-900 text-white flex flex-col p-4">
-      <h2 className="text-xl font-semibold mb-8 tracking-wide flex items-center gap-2">
-        <Home size={20} /> Portal
-      </h2>
+    <div className="flex items-center gap-3 mb-10">
+      <img
+        src={dsuLogo}
+        alt="DSU Logo"
+        className="w-12 h-12 object-contain"
+      />
+      <h2 className="text-lg font-semibold tracking-wide">DSU Portal</h2>
+    </div>
+
 
       <nav className="flex flex-col space-y-3">
         {links.map((link) =>
