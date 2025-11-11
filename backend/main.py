@@ -110,35 +110,83 @@ def create_app():
     @token_required
     @role_required(['student','teacher'])
     def upload(current_user):
-        if 'file' not in request.files:
-            return jsonify({'message':'no file'}), 400
+        """
+        Handle file upload and trigger document processing.
+        
+        Args:
+            current_user: User object injected by @token_required decorator
+            
+        Returns:
+            JSON response with success status and document_id
+        """
+        try:
+            # Check if file is in request
+            if 'file' not in request.files:
+                print("[Upload] ❌ No file in request")
+                return jsonify({'message':'No file provided'}), 400
 
-        f = request.files['file']
-        if f.filename == '':
-            return jsonify({'message':'empty filename'}), 400
+            file = request.files['file']
+            
+            # Check if filename is empty
+            if file.filename == '':
+                print("[Upload] ❌ Empty filename")
+                return jsonify({'message':'No file selected'}), 400
 
-        ext = f.filename.rsplit('.', 1)[-1].lower()
-        if ext not in ALLOWED_EXT:
-            return jsonify({'message':'file type not allowed'}), 400
+            # Validate file extension
+            ext = file.filename.rsplit('.', 1)[-1].lower()
+            if ext not in ALLOWED_EXT:
+                print(f"[Upload] ❌ Invalid file type: .{ext}")
+                return jsonify({'message':f'File type .{ext} not allowed. Allowed: {", ".join(ALLOWED_EXT)}'}), 400
 
-        filename = secure_filename(f.filename)
-        path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        f.save(path)
+            # Secure filename and create path
+            filename = secure_filename(file.filename)
+            upload_folder = app.config.get('UPLOAD_FOLDER', 'static/uploads')
+            os.makedirs(upload_folder, exist_ok=True)
+            file_path = os.path.join(upload_folder, filename)
+            
+            print(f"[Upload] 📂 Saving file: {filename}")
+            print(f"[Upload] 📍 Path: {file_path}")
+            print(f"[Upload] 👤 Uploaded by: {current_user.username}")
+            print(f"[Upload] 🏢 User department: {current_user.department}")
+            
+            # Save file to disk
+            file.save(file_path)
+            print(f"[Upload] ✅ File saved successfully")
 
-        # ✅ Mark status as pending review
-        doc = Document(filename=filename, uploaded_by=request.user.username, status='needs_review')
-        db.session.add(doc)
-        db.session.commit()
+            # Create document record in database
+            doc = Document(
+                filename=filename, 
+                uploaded_by=current_user.username,
+                status='needs_review',
+                department=current_user.department  # Pre-populate from user
+            )
+            db.session.add(doc)
+            db.session.commit()
+            
+            print(f"[Upload] 💾 Document record created (ID: {doc.id})")
 
-        # Trigger orchestration
-        orchestrator.process_document(doc.id)
+            # Trigger orchestration with explicit file_path parameter
+            print(f"[Upload] 🚀 Triggering orchestration...")
+            orchestrator.process_document(doc.id, file_path=file_path)
+            
+            print(f"[Upload] ✅ Processing initiated for document {doc.id}")
 
-        print(f"[Upload] Document {filename} marked as 'needs_review' for validation.")
-        return jsonify({
-            "success": True,
-            "message": f"Document {filename} marked as 'needs_review' for validation.",
-            "document_id": doc.id
-        }), 200
+            return jsonify({
+                "success": True,
+                "message": f"Document '{filename}' uploaded and queued for processing",
+                "document_id": doc.id,
+                "status": "processing"
+            }), 200
+
+        except Exception as e:
+            print(f"[Upload] ❌ Upload failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "message": "Upload failed",
+                "error": str(e)
+            }), 500
 
 
 
@@ -256,6 +304,7 @@ def create_app():
                     "date": e.date.isoformat() if e.date else None,
                     "category": e.category,
                     "department": e.department,
+                    "type": e.type,
                     "document_id": e.document_id,
                     "uploaded_by": e.document.uploaded_by if e.document else "Unknown",
                     "validated": e.validated

@@ -18,9 +18,9 @@ const EVENT_TYPES = [
   { value: "Competition", label: "Competition / Hackathon / Quiz" },
   { value: "Orientation", label: "Orientation / Induction / Welcome" },
   { value: "Research/Report", label: "Research / Report / Paper Presentation" },
+  { value: "Certificate Event", label: "Certificate Event" },
   { value: "General Event", label: "General / Department Activity" },
 ];
-
 
 function DocumentModal({ open, onClose, docId, token, onValidated }) {
   const [doc, setDoc] = useState(null);
@@ -58,10 +58,9 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
             department: ev.department || "",
             venue: ev.venue || "",
             organizer: ev.organizer || "",
-            abstract: data.abstract || "",  // ✅ use extracted abstract
+            abstract: data.abstract || "",
           });
-        } 
-
+        }
       } catch (err) {
         console.error("Failed to load document", err);
       } finally {
@@ -124,19 +123,34 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
     }
   };
 
-
   if (!open) return null;
 
   const fileUrl = `http://localhost:5000/api/document/${docId}/file?token=${token}`;
-
   const fieldStyle = (key) =>
     errors.some((err) => err.toLowerCase().includes(key)) ? "border-red-500" : "border-gray-300";
+
+  // Get document type badge
+  const docType = doc?.events?.[0]?.type || "Report";
+  const isCertificate = docType === "Certificate";
 
   return (
     <div className="fixed inset-0 flex items-start justify-center p-6 z-50">
       <div className="absolute inset-0 bg-black opacity-40" onClick={onClose}></div>
       <div className="bg-white rounded-lg p-6 shadow-xl relative z-50 w-full max-w-3xl max-h-[85vh] overflow-auto">
-        <h2 className="text-xl font-bold mb-3">Document Review & Validation</h2>
+        {/* Header with Document Type Badge */}
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Document Review & Validation</h2>
+          <span
+            className={`px-3 py-1 rounded-full text-sm font-semibold ${
+              isCertificate
+                ? "bg-purple-100 text-purple-700 border border-purple-300"
+                : "bg-blue-100 text-blue-700 border border-blue-300"
+            }`}
+          >
+            {isCertificate ? "📜 Certificate" : "📄 Report"}
+          </span>
+        </div>
+
         <a href={fileUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
           📄 Open Uploaded File
         </a>
@@ -173,7 +187,14 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium">Event Type:</span>
+            <span className="text-sm font-medium">
+              Event Type:
+              {isCertificate && (
+                <span className="ml-2 text-purple-600 text-xs font-normal">
+                  (Certificate detected - consider "Certificate Event")
+                </span>
+              )}
+            </span>
             <select
               value={form.category}
               onChange={(e) => handleChange("category", e.target.value)}
@@ -223,7 +244,7 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium">Abstract:</span>
+            <span className="text-sm font-medium">Abstract / Description:</span>
             <textarea
               value={form.abstract}
               onChange={(e) => handleChange("abstract", e.target.value)}
@@ -278,7 +299,6 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );
@@ -309,6 +329,22 @@ export default function Validate() {
     setEvents(events.filter((e) => e.id !== id));
   };
 
+  // Get document type badge helper
+  const getTypeBadge = (type) => {
+    if (type === "Certificate") {
+      return (
+        <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">
+          📜 Certificate
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">
+        📄 Report
+      </span>
+    );
+  };
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <h1 className="text-2xl font-bold mb-4">Validation Queue</h1>
@@ -318,10 +354,10 @@ export default function Validate() {
         <table className="w-full border bg-white rounded shadow">
           <thead>
             <tr className="bg-gray-200">
+              <th className="p-2 border">Type</th>
               <th className="p-2 border">Event Name</th>
               <th className="p-2 border">Date</th>
               <th className="p-2 border">Category</th>
-              <th className="p-2 border">Type</th>
               <th className="p-2 border">Department</th>
               <th className="p-2 border">Uploaded By</th>
               <th className="p-2 border">Action</th>
@@ -330,10 +366,12 @@ export default function Validate() {
           <tbody>
             {events.map((e) => (
               <tr key={e.id} className="border-t hover:bg-gray-100">
+                <td className="p-2 border text-center">
+                  {getTypeBadge(e.type || "Report")}
+                </td>
                 <td className="p-2 border">{e.name || "Unknown"}</td>
                 <td className="p-2 border">{e.date || "N/A"}</td>
                 <td className="p-2 border">{e.category || "General"}</td>
-                <td className="p-2 border">{e.type || "Report"}</td>
                 <td className="p-2 border">{e.department || "Unknown"}</td>
                 <td className="p-2 border">{e.uploaded_by}</td>
                 <td className="p-2 border text-center">
