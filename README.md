@@ -1,217 +1,340 @@
-# 🧠 Multi-Agent AI Event Tracker
+# 🧠 Multi-Agent AI Event Tracker (Final Build)
 
-A Flask + React-based AI system that uses **multi-agent intelligence** and **OCR (PaddleOCR)** to extract and categorize event data from uploaded documents.  
-It supports multiple roles — **Student**, **Teacher**, and **IQC Admin** — each with different permissions and dashboards.
+An AI-powered document intelligence system built using **Flask + React**, integrating multiple specialized agents for automatic **OCR**, **NER**, **categorization**, and **validation** of uploaded academic event reports and project documents.
+
+This system supports intelligent extraction of text from both **scanned PDFs and digital reports**, automatically identifies the **event type, department, and abstract**, and stores results in a structured database.
 
 ---
 
-## ⚙️ Tech Stack
+## 🏗️ Architecture
 
-**Backend:** Flask, SQLAlchemy, PaddleOCR, JWT Authentication  
+### System Components
+
+\`\`\`
+┌─────────────────────────────────────────────────────┐
+│           Frontend (React Application)              │
+│  - Student/Teacher/Admin Dashboards                 │
+│  - Document Upload Interface                        │
+│  - Event Validation UI                              │
+│  - Real-time Progress Tracking                      │
+└─────────────────┬───────────────────────────────────┘
+                  │ REST API
+┌─────────────────▼───────────────────────────────────┐
+│         Flask Backend API Server                    │
+│  - User Authentication & Authorization              │
+│  - Document Management                              │
+│  - Event CRUD Operations                            │
+│  - Report Generation                                │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────┐
+│        Multi-Agent Orchestration Layer              │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐               │
+│  │ OCR Agent    │  │ NER Agent    │               │
+│  │ - PaddleOCR  │  │ - spaCy/NLP  │               │
+│  │ - Text Ext.  │  │ - Entity Ext.│               │
+│  └──────────────┘  └──────────────┘               │
+│                                                     │
+│  ┌──────────────────┐  ┌────────────────┐        │
+│  │ Categorizer Agent│  │Validator Agent │        │
+│  │ - Classification │  │ - Validation   │        │
+│  │ - Dept. Mapping  │  │ - Rule Checking│        │
+│  └──────────────────┘  └────────────────┘        │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────────┐
+│     Database Layer (SQLite + SQLAlchemy ORM)        │
+│  - Users & Authentication                           │
+│  - Documents & Entities                             │
+│  - Events & Validation Status                       │
+└─────────────────────────────────────────────────────┘
+\`\`\`
+
+### Agent Responsibilities
+
+- **OCR Agent** (`ocr_agent.py`): Extracts text from document images using PaddleOCR and summarizes content
+- **NER Agent** (`ner_agent.py`): Performs Named Entity Recognition to extract event details (date, venue, organizer)
+- **Categorizer Agent** (`categorizer_agent.py`): Classifies events into predefined categories and departments
+- **Validator Agent** (`validator_agent.py`): Validates extracted data against business rules
+- **Orchestrator Agent** (`orchestrator_agent.py`): Coordinates the entire processing pipeline
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- **Python 3.8+**
+- **Node.js 14+** (for frontend)
+- **pip** (Python package manager)
+- **npm** or **yarn** (Node package manager)
+
+### Backend Installation
+
+#### 1. Clone and Navigate to Backend
+
+\`\`\`bash
+cd backend
+\`\`\`
+
+#### 2. Create Virtual Environment
+
+\`\`\`bash
+# On Windows
+python -m venv venv
+venv\Scripts\activate
+
+# On macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
+\`\`\`
+
+#### 3. Install Dependencies
+
+\`\`\`bash
+pip install -r requirements.txt
+\`\`\`
+
+#### 4. Download spaCy Model (Required for NER)
+
+\`\`\`bash
+python -m spacy download en_core_web_sm
+\`\`\`
+
+#### 5. Initialize Database
+
+\`\`\`bash
+# Create database and tables
+python -c "from main import app; app.app_context().push(); from models import db; db.create_all(); print('✅ Database initialized')"
+
+# Seed initial users (optional)
+# Default users: student1, teacher1, iqc (see config for passwords)
+curl -X POST http://localhost:5000/api/init
+\`\`\`
+
+#### 6. Run Backend Server
+
+\`\`\`bash
+# Development
+python main.py
+
+# Production
+gunicorn --bind 0.0.0.0:5000 --workers 4 main:app
+\`\`\`
+
+The backend API will be available at `http://localhost:5000`
+
+### Frontend Installation
+
+#### 1. Navigate to Frontend Directory
+
+\`\`\`bash
+cd frontend
+\`\`\`
+
+#### 2. Install Dependencies
+
+\`\`\`bash
+npm install
+\`\`\`
+
+#### 3. Start Development Server
+
+**Backend:** Flask, SQLAlchemy, PaddleOCR, spaCy, JWT Authentication  
 **Frontend:** React, TailwindCSS, Chart.js  
-**Database:** SQLite (default)  
+**Database:** SQLite (default, extensible to PostgreSQL/MySQL)  
+**AI Agents:** OCR | NER | Categorizer | Validator  
 **Roles:** Student | Teacher | IQC Admin  
 
 ---
 
-## 🚀 Project Setup
+## 🚀 Setup Guide
 
-### 🧩 Prerequisites
+#### Events
 
-Make sure you have these installed:
+Before you begin, make sure you have:
 
-- **Python 3.10+** (3.11 recommended)
-- **Node.js 18+**
-- **npm** or **yarn**
-- **Git**
+- 🐍 **Python 3.10+** (3.11 recommended)
+- ⚙️ **Node.js 18+**
+- 📦 **npm** or **yarn**
+- 🧭 **Git**
 
 ---
 
 ## 🖥️ Backend Setup (Flask)
 
-1.  Navigate to the backend folder:
-    ```bash
-    cd backend
-    ```
-2.  (Optional but recommended) Create and activate a virtual environment:
-    ```bash
-    python -m venv venv
-    venv\Scripts\activate    # On Windows
-    # or
-    source venv/bin/activate    # On macOS/Linux
-    ```
-3.  Install all required Python packages:
-    ```bash
-    pip install -r requirements.txt
-    ```
-4.  Initialize the database (only needed once):
-    ```bash
-    flask db upgrade
-    ```
-5.  (Optional) Initialize default users (run this route once after backend starts):
-    ```bash
-    POST http://localhost:5000/api/init
-    ```
-6.  Run the Flask server:
-    ```bash
-    python main.py
-    ```
-    The backend will start at:
-    ```
-    http://localhost:5000
-    ```
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
+
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   # for PowerShell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\venv\Scripts\activate
+   ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Install the spaCy English model:
+   ```bash
+   pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1.tar.gz
+   ```
+
+5. Initialize or upgrade your database:
+   ```bash
+   flask db upgrade
+   ```
+
+6. (Optional) Initialize default users:
+   ```bash
+   POST http://localhost:5000/api/init
+   ```
+
+7. Start the backend server:
+   ```bash
+   python main.py
+   ```
+   The backend will run at:  
+   👉 `http://localhost:5000`
 
 ---
 
 ## 🌐 Frontend Setup (React)
 
-1.  Open a new terminal and navigate to the frontend folder:
-    ```bash
-    cd frontend
-    ```
-2.  Install dependencies:
-    ```bash
-    npm install
-    ```
-3.  Start the frontend:
-    ```bash
-    npm start
-    ```
-    The React app will start at:
-    ```
-    http://localhost:3000
-    ```
+1. Open a new terminal and go to the frontend directory:
+   ```bash
+   cd frontend
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Start the frontend:
+   ```bash
+   npm start
+   ```
+   Access the app at:  
+   👉 `http://localhost:3000`
 
 ---
 
-## 🔐 Default Login Credentials
+## 🔑 Default Login Credentials
 
 | Role | Username | Password | Department |
-| :--- | :--- | :--- | :--- |
+|------|-----------|-----------|-------------|
 | Student | student1 | student1 | AIML |
-| Teacher | teacher1 | teacher1 | CSE(Core) |
-| IQC Admin | iqc | adminpass | ALL |
+| Student | student1 | student1 | CSE |
+| Teacher | teacher1 | teacher1 | CSE |
+| Teacher | teacher2 | teacher2 | AIML |
+| IQC Admin | iqc | iqc123 | ALL |
 
 ---
 
-## 🧩 Features
+## 🤖 AI Multi-Agent Pipeline
 
--   📄 Upload event reports (PDFs, images)
--   🤖 OCR-based text extraction using PaddleOCR
--   🧠 Multi-agent pipeline for information extraction, validation, and categorization
--   🧑‍🎓 Role-based access (Students, Teachers, IQC Admin)
--   📊 Progress tracker by department
--   🧾 CSV Report generation per department
--   🔒 JWT-secured REST API
+| Step | Agent | Function |
+|------|--------|-----------|
+| 1️⃣ | **OCR Agent** | Extracts text from PDFs or images using PaddleOCR (hybrid for digital + scanned) |
+| 2️⃣ | **NER Agent** | Extracts event details (name, date, venue, organizer, department) |
+| 3️⃣ | **Categorizer Agent** | Classifies document into Workshop / Conference / Report / etc. |
+| 4️⃣ | **Validator Agent** | Checks field completeness & format (e.g., missing abstract/date) |
+| 5️⃣ | **Database** | Persists document, event, and extracted entities |
 
 ---
 
-## 🧰 Useful Commands
+## 🧩 Key Features
 
-### Rebuild virtual environment
+- 📄 Upload event or project reports (PDF / Image)
+- 🧠 Hybrid OCR using **PaddleOCR** (auto-detects text layer)
+- 💡 Intelligent NER (named entity recognition via spaCy)
+- 🗂️ Event categorization (e.g., Workshop, Competition, Research Report)
+- 🧾 Abstract extraction and validation
+- 👨‍🏫 Multi-role dashboard (Student, Teacher, IQC Admin)
+- 📊 Department-wise progress tracking
+- 🔒 JWT-based authentication
+- 📦 CSV report generation
+
+---
+
+## 🧰 Common Commands
+
+### Rebuild Environment
 ```bash
 rmdir /s /q venv
 python -m venv venv
-venv\Scripts\activate
+.\venv\Scripts\activate
 pip install -r requirements.txt
-````
+```
 
-### Regenerate database
-
+### Database Reset
 ```bash
 flask db init
 flask db migrate
 flask db upgrade
 ```
 
-### Clean project cache
-
+### Clean Cache / Build
 ```bash
 git clean -fdx
 ```
 
------
+---
 
-## 🧠 Troubleshooting
+\`\`\`bash
+curl -X POST http://localhost:5000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"student1","password":"student1"}'
+\`\`\`
 
-  - **Login fails:** Run `/api/init` once after backend setup to create default users.
-  - **OCR errors:** Ensure PaddleOCR and PaddlePaddle are correctly installed:
-    ```bash
-    pip install paddleocr paddlepaddle
-    ```
-  - **Frontend 5000 CORS issue:** Confirm your frontend `package.json` includes:
-    ```json
-    "proxy": "http://localhost:5000"
-    ```
+| Problem | Solution |
+|----------|-----------|
+| **OCR too slow** | Reduce DPI in `ocr_agent.py` (`pix = page.get_pixmap(dpi=100)`) |
+| **OCR init failed** | Run `pip install paddleocr paddlepaddle` manually |
+| **spaCy model missing** | Reinstall with the model tar.gz link above |
+| **CORS / Proxy issue** | Ensure frontend `package.json` has `"proxy": "http://localhost:5000"` |
+| **Login fails** | Run `/api/init` endpoint to recreate default users |
 
------
+---
 
-## 🌿 Git Collaboration Guide (For Team Members)
+## 🌿 Git Workflow (Team Collaboration)
 
-### 🔄 Pull the latest code
+1. Pull latest code:
+   ```bash
+   git pull origin main
+   ```
+2. Create your branch:
+   ```bash
+   git checkout -b aman-feature
+   ```
+3. After edits:
+   ```bash
+   git add .
+   git commit -m "Updated OCR and orchestrator pipeline"
+   git push origin aman-feature
+   ```
+4. Open a Pull Request on GitHub for review & merge.
 
-Before you start working, always pull the latest version:
+---
 
-```bash
-git pull origin main
-```
+---
 
-This ensures your local project is up to date with the main branch.
+## 📞 Support
 
-### 🌱 Create your own branch
+For issues or questions, contact the development team or create an issue in the repository.
 
-Each teammate should create and work on their own branch, not directly on `main`.
+---
 
-```bash
-git checkout -b yourname-feature
-```
+## 📌 Version History
 
-Example:
-
-```bash
-git checkout -b aman-frontend-fix
-```
-
-After finishing changes:
-
-```bash
-git add .
-git commit -m "Added feature XYZ"
-git push origin yourname-feature
-```
-
-### 🧩 Merging back to main (by Aman / Maintainer)
-
-When your feature is ready, go to GitHub and open a **Pull Request (PR)** from your branch to `main`.
-The maintainer (Aman) will review and merge it.
-
-### 🧼 If you get errors while pulling:
-
-If you modified files that also changed in `main`, Git will show a merge conflict.
-Fix the files manually, then run:
-
-```bash
-git add .
-git commit -m "Resolved conflicts"
-git push
-```
-
-### 🌳 Simple Git Branch Flow
-
-```
-      main
-        \
-         \__ aman-frontend-fix
-               \__ -> (commit, push)
-                     \
-                      -> Pull Request -> main (merged)
-```
-
------
-
-## 🧾 License
-
-This project is developed as part of a Pattern Recognition and Machine Learning case study by Aman Sheikh.
-Free to use for educational purposes.
-
------
+Developed by **Aman Sheikh**  
+as part of a *Pattern Recognition and Machine Learning* case study.  
+Free to use for academic and educational purposes.
