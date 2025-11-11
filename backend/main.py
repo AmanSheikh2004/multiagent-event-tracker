@@ -394,7 +394,7 @@ def create_app():
             print("[Department Details Error]", e)
             return jsonify({"message": "Error fetching department details", "error": str(e)}), 500
         
-    # 🧩 New: Fetch rejected events for a given student
+
     @app.route('/api/tracker/rejected/<username>', methods=['GET'])
     @token_required
     @role_required(['student'])
