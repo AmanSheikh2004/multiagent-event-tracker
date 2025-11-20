@@ -100,10 +100,14 @@ def create_app():
     @app.route('/api/init', methods=['POST'])
     def init_data():
         if User.query.count() == 0:
+            # Sample users for each department
             u1 = User(username='student1', role='student', department='AIML'); u1.set_password('student1')
-            u2 = User(username='teacher1', role='teacher', department='CSE(Core)'); u2.set_password('teacher1')
-            u3 = User(username='iqc', role='iqc', department='ALL'); u3.set_password('adminpass')
-            db.session.add_all([u1,u2,u3]); db.session.commit()
+            u2 = User(username='student2', role='student', department='CSE-DS'); u2.set_password('student2')
+            u3 = User(username='teacher1', role='teacher', department='CSE(Core)'); u3.set_password('teacher1')
+            u4 = User(username='teacher2', role='teacher', department='AIML'); u4.set_password('teacher2')
+            u5 = User(username='teacher3', role='teacher', department='CSE-CY'); u5.set_password('teacher3')
+            u6 = User(username='iqc', role='iqc', department='ALL'); u6.set_password('iqc123')
+            db.session.add_all([u1,u2,u3,u4,u5,u6]); db.session.commit()
         return jsonify({'message':'initialized'})
 
     @app.route('/api/upload', methods=['POST'])
@@ -341,6 +345,8 @@ def create_app():
             departments = {
                 "AIML": 10,
                 "CSE(Core)": 10,
+                "CSE-DS": 10,
+                "CSE-CY": 10,
                 "ISE": 10,
                 "ECE": 10,
                 "AERO": 10

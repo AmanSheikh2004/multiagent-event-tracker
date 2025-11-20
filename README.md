@@ -232,9 +232,10 @@ Before you begin, make sure you have:
 | Role | Username | Password | Department |
 |------|-----------|-----------|-------------|
 | Student | student1 | student1 | AIML |
-| Student | student1 | student1 | CSE |
-| Teacher | teacher1 | teacher1 | CSE |
+| Student | student2 | student2 | CSE-DS |
+| Teacher | teacher1 | teacher1 | CSE(Core) |
 | Teacher | teacher2 | teacher2 | AIML |
+| Teacher | teacher3 | teacher3 | CSE-CY |
 | IQC Admin | iqc | iqc123 | ALL |
 
 ---
