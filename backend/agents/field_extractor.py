@@ -20,15 +20,28 @@ class RobustFieldExtractor:
                 r"\bAIML\b",
                 r"\bAI\s*&\s*ML\b",
                 r"Artificial\s+Intelligence\s+(?:and|&)?\s*Machine\s+Learning",
-                r"Department\s+of\s+(?:Artificial\s+Intelligence|AI)",
+                r"CSE[\s\-]*AIML",
+                r"Computer\s+Science.*?AIML",
                 r"Dept\.?\s+of\s+AIML"
             ],
             "CSE(Core)": [
-                r"\bCSE\b(?!\s*\()",
-                r"Computer\s+Science\s+(?:and|&)?\s*Engineering(?!\s*\()",
+                r"\bCSE\b(?!\s*[-\(])",  # CSE not followed by dash or parenthesis
+                r"Computer\s+Science\s+(?:and|&)?\s*Engineering(?!\s*[-\(])",  # CSE not followed by specialization
                 r"CSE\s*Core",
                 r"CSE\s*-\s*Core",
-                r"Department\s+of\s+Computer\s+Science"
+                r"Department\s+of\s+Computer\s+Science\s+(?:and\s+)?Engineering$"  # Must end here
+            ],
+            "CSE-DS": [
+                r"CSE[\s\-]*DS",
+                r"CSE[\s\-]*Data\s+Science",
+                r"Computer\s+Science.*?Data\s+Science",
+                r"Data\s+Science\s+(?:and|&)?\s*Engineering"
+            ],
+            "CSE-CY": [
+                r"CSE[\s\-]*CY",
+                r"CSE[\s\-]*Cyber",
+                r"Computer\s+Science.*?Cyber",
+                r"Cyber\s+Security\s+(?:and|&)?\s*Engineering"
             ],
             "ISE": [
                 r"\bISE\b",
@@ -40,6 +53,8 @@ class RobustFieldExtractor:
                 r"\bECE\b",
                 r"Electronics\s+(?:and|&)?\s*Communication",
                 r"E\s*&\s*C\s*E",
+                r"CSE[\s\-]*EC",
+                r"Computer\s+Science.*?Electronics",
                 r"Department\s+of\s+Electronics"
             ],
             "AERO": [
@@ -348,25 +363,44 @@ class RobustFieldExtractor:
         """Normalize department text to standard codes"""
         dept_upper = dept_text.upper()
         
-        # AI/ML variations
-        if any(kw in dept_upper for kw in ["ARTIFICIAL", "AI", "MACHINE LEARNING", "AIML"]):
+        # Priority order matters! Check specializations BEFORE core CSE
+        
+        # AI/ML variations (highest priority for CSE-AIML)
+        if any(kw in dept_upper for kw in ["AIML", "AI & ML", "AI&ML", "CSE-AIML", "CSE AIML"]):
             return "AIML"
         
-        # CSE variations (exclude ISE)
-        if "COMPUTER SCIENCE" in dept_upper and "INFORMATION" not in dept_upper:
-            return "CSE(Core)"
+        if "ARTIFICIAL INTELLIGENCE" in dept_upper or "MACHINE LEARNING" in dept_upper:
+            return "AIML"
         
-        # ISE variations
-        if "INFORMATION SCIENCE" in dept_upper or "IS&E" in dept_upper:
-            return "ISE"
+        # Data Science variations
+        if any(kw in dept_upper for kw in ["CSE-DS", "CSE DS", "DATA SCIENCE"]):
+            return "CSE-DS"
         
-        # ECE variations
-        if any(kw in dept_upper for kw in ["ELECTRONICS", "COMMUNICATION", "ECE", "E&CE"]):
+        # Cyber Security variations
+        if any(kw in dept_upper for kw in ["CSE-CY", "CSE CY", "CYBER"]):
+            return "CSE-CY"
+        
+        # Electronics/Communication (before CSE check)
+        if any(kw in dept_upper for kw in ["ELECTRONICS", "COMMUNICATION", "ECE", "E&CE", "CSE-EC"]):
             return "ECE"
+        
+        # ISE variations (before CSE check)
+        if "INFORMATION SCIENCE" in dept_upper or "IS&E" in dept_upper or "ISE" in dept_upper:
+            return "ISE"
         
         # AERO variations
         if any(kw in dept_upper for kw in ["AERO", "AEROSPACE", "AERONAUTICAL"]):
             return "AERO"
+        
+        # CSE Core - ONLY if it's pure Computer Science Engineering with NO specialization
+        # This should be last to avoid false matches
+        if "COMPUTER SCIENCE" in dept_upper:
+            # Check if any specialization keywords exist
+            specializations = ["AIML", "DATA SCIENCE", "CYBER", "ELECTRONICS", "INFORMATION"]
+            has_specialization = any(spec in dept_upper for spec in specializations)
+            
+            if not has_specialization:
+                return "CSE(Core)"
         
         # Return truncated original if no match
         return dept_text[:30]

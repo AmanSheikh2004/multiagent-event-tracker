@@ -33,6 +33,10 @@ export default function Tracker() {
         return "🤖";
       case "CSE(Core)":
         return "💻";
+      case "CSE-DS":
+        return "📊";
+      case "CSE-CY":
+        return "🔐";
       case "ISE":
         return "⚙️";
       case "ECE":

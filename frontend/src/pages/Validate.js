@@ -2,13 +2,16 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 
-const DEPARTMENTS = [
-  { value: "AIML", label: "Artificial Intelligence & Machine Learning (AIML)" },
-  { value: "CSE(Core)", label: "Computer Science & Engineering (Core)" },
-  { value: "ISE", label: "Information Science & Engineering (ISE)" },
-  { value: "ECE", label: "Electronics & Communication Engineering (ECE)" },
-  { value: "AERO", label: "Aeronautical Engineering (AERO)" },
-];
+  const DEPARTMENTS = [
+    { value: "", label: "-- Department (optional) --" },
+    { value: "AIML", label: "Computer Science & Engineering - AIML" },
+    { value: "CSE(Core)", label: "Computer Science & Engineering (Core)" },
+    { value: "CSE-DS", label: "Computer Science & Engineering - Data Science" },
+    { value: "CSE-CY", label: "Computer Science & Engineering - Cyber Security" },
+    { value: "ISE", label: "Information Science & Engineering" },
+    { value: "ECE", label: "Electronics & Communication Engineering" },
+    { value: "AERO", label: "Aeronautical Engineering" },
+  ];
 
 const EVENT_TYPES = [
   { value: "Seminar", label: "Seminar" },
@@ -49,16 +52,24 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
         const data = res.data;
         setDoc(data);
 
+        // Helper function to get entity value by type
+        const getEntityValue = (entityType) => {
+          const entity = data.entities?.find(
+            (e) => e.entity_type.toLowerCase() === entityType.toLowerCase()
+          );
+          return entity?.entity_value || "";
+        };
+
         if (data.events?.[0]) {
           const ev = data.events[0];
           setForm({
-            name: ev.name || "",
-            date: ev.date || "",
-            category: ev.category || "",
-            department: ev.department || "",
-            venue: ev.venue || "",
-            organizer: ev.organizer || "",
-            abstract: data.abstract || "",
+            name: ev.name || getEntityValue("event_name") || "",
+            date: ev.date || getEntityValue("date") || "",
+            category: ev.category || getEntityValue("category") || "",
+            department: ev.department || getEntityValue("department") || "",
+            venue: getEntityValue("venue") || "",
+            organizer: getEntityValue("organizer") || "",
+            abstract: getEntityValue("abstract") || data.abstract || "",
           });
         }
       } catch (err) {

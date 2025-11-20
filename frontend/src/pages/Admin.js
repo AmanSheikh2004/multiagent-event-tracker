@@ -17,8 +17,10 @@ export default function Admin() {
 
   const DEPARTMENTS = [
     { value: "", label: "-- Department (optional) --" },
-    { value: "AIML", label: "Artificial Intelligence & Machine Learning" },
+    { value: "AIML", label: "Computer Science & Engineering - AIML" },
     { value: "CSE(Core)", label: "Computer Science & Engineering (Core)" },
+    { value: "CSE-DS", label: "Computer Science & Engineering - Data Science" },
+    { value: "CSE-CY", label: "Computer Science & Engineering - Cyber Security" },
     { value: "ISE", label: "Information Science & Engineering" },
     { value: "ECE", label: "Electronics & Communication Engineering" },
     { value: "AERO", label: "Aeronautical Engineering" },
