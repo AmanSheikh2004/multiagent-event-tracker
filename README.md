@@ -35,13 +35,13 @@ This system supports intelligent extraction of text from both **scanned PDFs and
 
 #### 1. Clone and Navigate to Backend
 
-\`\`\`bash
+```bash
 cd backend
-\`\`\`
+```
 
 #### 2. Create Virtual Environment
 
-\`\`\`bash
+```bash
 # On Windows
 python -m venv venv
 venv\Scripts\activate
@@ -49,40 +49,40 @@ venv\Scripts\activate
 # On macOS/Linux
 python3 -m venv venv
 source venv/bin/activate
-\`\`\`
+```
 
 #### 3. Install Dependencies
 
-\`\`\`bash
+```bash
 pip install -r requirements.txt
-\`\`\`
+```
 
 #### 4. Download spaCy Model (Required for NER)
 
-\`\`\`bash
+```bash
 python -m spacy download en_core_web_sm
-\`\`\`
+```
 
 #### 5. Initialize Database
 
-\`\`\`bash
+```bash
 # Create database and tables
 python -c "from main import app; app.app_context().push(); from models import db; db.create_all(); print('✅ Database initialized')"
 
 # Seed initial users (optional)
 # Default users: student1, teacher1, iqc (see config for passwords)
 curl -X POST http://localhost:5000/api/init
-\`\`\`
+```
 
 #### 6. Run Backend Server
 
-\`\`\`bash
+```bash
 # Development
 python main.py
 
 # Production
 gunicorn --bind 0.0.0.0:5000 --workers 4 main:app
-\`\`\`
+```
 
 The backend API will be available at `http://localhost:5000`
 
@@ -90,15 +90,15 @@ The backend API will be available at `http://localhost:5000`
 
 #### 1. Navigate to Frontend Directory
 
-\`\`\`bash
+```bash
 cd frontend
-\`\`\`
+```
 
 #### 2. Install Dependencies
 
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 #### 3. Start Development Server
 
