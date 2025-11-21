@@ -1,22 +1,22 @@
 import os
 import fitz  # PyMuPDF
 import tempfile
-from paddleocr import PaddleOCR
 
 class OcrAgent:
     def __init__(self):
-        print("[OCR Agent] 🚀 Initializing hybrid OCR (Text + Image + Title Detection)")
+        print("[OCR Agent] Initializing hybrid OCR (Text + Image + Title Detection)")
+        self.ocr = None
         try:
-            # PaddleOCR tuned for speed and general-purpose English text
+            # Try PaddleOCR but don't fail if it has compatibility issues
+            from paddleocr import PaddleOCR
             self.ocr = PaddleOCR(
-                use_angle_cls=False,  # skip rotation correction for speed
-                lang="en",
-                show_log=False
+                use_angle_cls=False,
+                lang="en"
             )
-            print("[OCR Agent] ✅ PaddleOCR initialized successfully")
+            print("[OCR Agent] OK: PaddleOCR initialized")
         except Exception as e:
-            print(f"[OCR Agent] ❌ Initialization failed: {e}")
-            raise
+            print(f"[OCR Agent] WARNING: PaddleOCR failed ({str(e)[:50]}...), using PyMuPDF only")
+            self.ocr = None
 
     def extract_text(self, file_path):
         """Extracts text and title from PDFs or images intelligently."""
@@ -25,14 +25,16 @@ class OcrAgent:
 
         results = []
 
-        # 🧩 Case 1: Image file input (png, jpg, jpeg)
+        # Case 1: Image file input (png, jpg, jpeg)
         if file_path.lower().endswith((".png", ".jpg", ".jpeg")):
+            if not self.ocr:
+                raise ValueError("PaddleOCR not available for image processing")
             ocr_result = self.ocr.ocr(file_path)
             text = self._parse_ocr_result(ocr_result)
             title = self._extract_title_from_text(text)
             return {"text": text, "title": title, "source": "image"}
 
-        # 🧩 Case 2: PDF input
+        # Case 2: PDF input
         with tempfile.TemporaryDirectory() as tmpdir:
             pdf = fitz.open(file_path)
             title = self._extract_title_from_pdf(pdf)
@@ -41,7 +43,7 @@ class OcrAgent:
                 # Try direct text extraction first
                 text = page.get_text("text")
 
-                # If text layer exists → skip OCR
+                # If text layer exists -> skip OCR
                 if text and len(text.strip()) > 30:
                     results.append({
                         "page": i + 1,
@@ -50,13 +52,26 @@ class OcrAgent:
                     })
                     continue
 
-                # Otherwise → fallback to OCR
+                # Otherwise -> fallback to OCR if available
+                if not self.ocr:
+                    # No OCR available, just use empty text
+                    results.append({
+                        "page": i + 1,
+                        "text": "",
+                        "source": "skipped"
+                    })
+                    continue
+                    
                 pix = page.get_pixmap(dpi=150)
                 img_path = os.path.join(tmpdir, f"page_{i+1}.png")
                 pix.save(img_path)
 
-                ocr_result = self.ocr.ocr(img_path)
-                ocr_text = self._parse_ocr_result(ocr_result)
+                try:
+                    ocr_result = self.ocr.ocr(img_path)
+                    ocr_text = self._parse_ocr_result(ocr_result)
+                except Exception as e:
+                    print(f"[OCR Agent] WARNING: OCR failed on page {i+1}: {str(e)[:50]}")
+                    ocr_text = ""
 
                 results.append({
                     "page": i + 1,
@@ -66,7 +81,7 @@ class OcrAgent:
 
         # Combine all pages
         full_text = "\n".join([r["text"] for r in results])
-        print(f"[OCR Agent] 🧾 Extracted text from {len(results)} pages.")
+        print(f"[OCR Agent] Extracted text from {len(results)} pages.")
         return {"text": full_text, "title": title, "source": "pdf"}
 
     # -----------------------------
