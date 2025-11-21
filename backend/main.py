@@ -734,15 +734,45 @@ def create_app():
             event.reviewer_comment = comment
             db.session.commit()
 
-            print(f"[Reject] ❌ Event {event.id} rejected by {current_user.username} - {comment}")
+            print(f"[Reject] Error: Event {event.id} rejected by {current_user.username} - {comment}")
 
             return jsonify({
                 "message": "Event rejected successfully.",
                 "comment": comment
             }), 200
         except Exception as e:
-            print("[Reject] ❌ Error:", e)
+            print("[Reject] Error:", e)
             return jsonify({"message": "Reject failed", "error": str(e)}), 500
+
+    @app.route('/api/events/<int:event_id>', methods=['DELETE'])
+    @token_required
+    def delete_event(current_user, event_id):
+        try:
+            event = Event.query.get_or_404(event_id)
+            
+            # Check authorization - only student who uploaded can delete their rejected event
+            doc = Document.query.get(event.document_id) if event.document_id else None
+            if doc and doc.uploaded_by != current_user.username:
+                return jsonify({"message": "Unauthorized - only uploader can delete"}), 403
+            
+            # Delete related entities first
+            ExtractedEntity.query.filter_by(document_id=event.document_id).delete()
+            
+            # Delete the event
+            db.session.delete(event)
+            
+            # Delete document if it has no other events
+            if doc and not Event.query.filter_by(document_id=doc.id).first():
+                db.session.delete(doc)
+            
+            db.session.commit()
+            
+            print(f"[Delete] Event {event_id} deleted by {current_user.username}")
+            return jsonify({"message": "Event deleted successfully"}), 200
+            
+        except Exception as e:
+            print(f"[Delete] Error: {e}")
+            return jsonify({"message": "Delete failed", "error": str(e)}), 500
 
     
     return app

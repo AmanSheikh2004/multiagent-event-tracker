@@ -7,6 +7,7 @@ export default function StudentTracker() {
   const [events, setEvents] = useState({});
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [rejectedEvents, setRejectedEvents] = useState([]);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     const fetchDeptEvents = async () => {
@@ -36,6 +37,23 @@ export default function StudentTracker() {
     };
     fetchRejected();
   }, [user, token]);
+
+  const handleDeleteRejected = async (eventId) => {
+    if (!window.confirm("Are you sure you want to delete this rejected event?")) return;
+    
+    try {
+      setDeletingId(eventId);
+      await axios.delete(`http://localhost:5000/api/events/${eventId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setRejectedEvents(rejectedEvents.filter(e => e.id !== eventId));
+    } catch (err) {
+      console.error("Failed to delete event", err);
+      alert("Failed to delete event.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const total = 10;
   const validatedCount = Object.values(events).flat().length;
@@ -89,12 +107,21 @@ export default function StudentTracker() {
                       <td className="border px-3 py-2">{e.category}</td>
                       <td className="border px-3 py-2 text-red-600 font-medium">{e.comment}</td>
                       <td className="border px-3 py-2 text-center">
-                        <button
-                          onClick={() => setSelectedEvent(e)}
-                          className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700"
-                        >
-                          View Details
-                        </button>
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            onClick={() => setSelectedEvent(e)}
+                            className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-700"
+                          >
+                            View Details
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRejected(e.id)}
+                            disabled={deletingId === e.id}
+                            className="bg-red-600 text-white px-3 py-1 rounded-md text-sm hover:bg-red-700 disabled:bg-red-400"
+                          >
+                            {deletingId === e.id ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
