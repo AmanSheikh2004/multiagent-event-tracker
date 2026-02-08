@@ -14,15 +14,14 @@ import { useAuth } from "../context/AuthContext";
   ];
 
 const EVENT_TYPES = [
+  { value: "Workshop / Hands-on / Training", label: "Workshop / Hands-on / Training" },
   { value: "Seminar", label: "Seminar" },
-  { value: "Workshop", label: "Workshop / Hands-on / Training" },
-  { value: "Guest Lecture", label: "Guest Lecture / Expert Talk" },
-  { value: "Conference", label: "Conference / Symposium" },
-  { value: "Competition", label: "Competition / Hackathon / Quiz" },
-  { value: "Orientation", label: "Orientation / Induction / Welcome" },
-  { value: "Research/Report", label: "Research / Report / Paper Presentation" },
-  { value: "Certificate Event", label: "Certificate Event" },
-  { value: "General Event", label: "General / Department Activity" },
+  { value: "Guest Lecture / Expert Talk", label: "Guest Lecture / Expert Talk" },
+  { value: "Conference / Symposium", label: "Conference / Symposium" },
+  { value: "Competition / Hackathon / Quiz", label: "Competition / Hackathon / Quiz" },
+  { value: "Orientation / Induction / Welcome", label: "Orientation / Induction / Welcome" },
+  { value: "Research / Report / Paper Presentation", label: "Research / Report / Paper Presentation" },
+  { value: "General / Department Activity", label: "General / Department Activity" },
 ];
 
 function DocumentModal({ open, onClose, docId, token, onValidated }) {
@@ -166,24 +165,25 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           📄 Open Uploaded File
         </a>
 
+
         {errors.length > 0 && (
           <div className="bg-red-50 border border-red-400 text-red-600 p-2 mt-3 rounded text-sm">
             <strong>⚠ Validation Issues:</strong>
             <ul className="list-disc ml-5">
-              {errors.map((e, i) => (
-                <li key={i}>{e}</li>
+              {errors.map((err, idx) => (
+                <li key={idx}>{err}</li>
               ))}
             </ul>
           </div>
         )}
 
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 space-y-3">
           <label className="block">
             <span className="text-sm font-medium">Event Name:</span>
             <input
               value={form.name}
               onChange={(e) => handleChange("name", e.target.value)}
-              className={`border p-2 w-full rounded ${fieldStyle("event name")}`}
+              className={`border p-2 w-full rounded ${fieldStyle("name")}`}
             />
           </label>
 
@@ -191,7 +191,7 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
             <span className="text-sm font-medium">Date:</span>
             <input
               type="date"
-              value={form.date ? form.date.slice(0, 10) : ""}
+              value={form.date}
               onChange={(e) => handleChange("date", e.target.value)}
               className={`border p-2 w-full rounded ${fieldStyle("date")}`}
             />
