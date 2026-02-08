@@ -27,12 +27,25 @@ class OcrAgent:
 
         # Case 1: Image file input (png, jpg, jpeg)
         if file_path.lower().endswith((".png", ".jpg", ".jpeg")):
-            if not self.ocr:
-                raise ValueError("PaddleOCR not available for image processing")
-            ocr_result = self.ocr.ocr(file_path)
-            text = self._parse_ocr_result(ocr_result)
-            title = self._extract_title_from_text(text)
-            return {"text": text, "title": title, "source": "image"}
+            if self.ocr:
+                # If PaddleOCR available, use it
+                try:
+                    ocr_result = self.ocr.ocr(file_path)
+                    text = self._parse_ocr_result(ocr_result)
+                    title = self._extract_title_from_text(text)
+                    return {"text": text, "title": title, "source": "image"}
+                except Exception as e:
+                    print(f"[OCR Agent] WARNING: OCR failed on image: {str(e)[:50]}")
+                    # Fall through to fallback
+            
+            # Fallback: Return basic file info since we can't OCR
+            print("[OCR Agent] No OCR available for image, returning placeholder")
+            filename = os.path.basename(file_path)
+            return {
+                "text": f"[Image file: {filename}]\n\nNote: Image OCR requires PaddleOCR. Please upload PDF or use a PDF version of this document.",
+                "title": filename,
+                "source": "image_fallback"
+            }
 
         # Case 2: PDF input
         with tempfile.TemporaryDirectory() as tmpdir:

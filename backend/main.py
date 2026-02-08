@@ -287,14 +287,12 @@ def create_app():
     @role_required(["teacher", "iqc"])
     def list_pending_events(current_user):
         try:
-            user = request.user
-
             # 🧑‍🏫 Teachers → See only events from their department that are unvalidated
-            if user.role == "teacher":
-                events = Event.query.filter_by(validated=False, department=user.department).all()
+            if current_user.role == "teacher":
+                events = Event.query.filter_by(validated=False, department=current_user.department).all()
             
             # 🧑‍💼 IQC → See all unvalidated events from all departments
-            elif user.role == "iqc":
+            elif current_user.role == "iqc":
                 events = Event.query.filter_by(validated=False).all()
             
             else:
