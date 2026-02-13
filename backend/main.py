@@ -327,7 +327,23 @@ def create_app():
         filename = d.filename
         upload_dir = app.config.get('UPLOAD_FOLDER', 'uploads')
         try:
-            return send_from_directory(upload_dir, filename, as_attachment=False)
+            # Determine mimetype
+            mimetype = 'application/pdf'
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                mimetype = 'image/jpeg' if filename.lower().endswith(('.jpg', '.jpeg')) else 'image/png'
+            elif filename.lower().endswith('.gif'):
+                mimetype = 'image/gif'
+            
+            response = send_from_directory(
+                upload_dir, 
+                filename, 
+                mimetype=mimetype,
+                as_attachment=False
+            )
+            # Force inline display
+            response.headers['Content-Disposition'] = 'inline'
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            return response
         except Exception as e:
             print("File send error:", e)
             abort(404)

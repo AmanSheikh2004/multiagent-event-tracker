@@ -48,12 +48,17 @@ class OrchestratorAgent:
             print(f"[Orchestrator] ⚠️ NER Agent init failed: {e}")
             self.ner_agent = None
         
-        try:
-            self.abstract_generator = AbstractGeneratorAgent(method='gemini')
-            print("[Orchestrator] ✅ Abstract Generator initialized (Gemini API)")
-        except Exception as e:
-            print(f"[Orchestrator] ⚠️ Abstract Generator init failed: {e}")
+        # Initialize Abstract Generator only if enabled in config
+        if Config.USE_ABSTRACT_AGENT:
+            try:
+                self.abstract_generator = AbstractGeneratorAgent(method='gemini')
+                print("[Orchestrator] ✅ Abstract Generator initialized (Gemini API)")
+            except Exception as e:
+                print(f"[Orchestrator] ⚠️ Abstract Generator init failed: {e}")
+                self.abstract_generator = None
+        else:
             self.abstract_generator = None
+            print("[Orchestrator] ℹ️ Abstract Generator DISABLED (USE_ABSTRACT_AGENT=false)")
 
         print("[Orchestrator] ✅ Ready to process documents")
 
@@ -174,6 +179,7 @@ class OrchestratorAgent:
             print(f"{'─'*70}")
             
             # Generate abstracts for both Reports and Certificates since both contain event details
+            # Note: Abstract generation can be disabled via USE_ABSTRACT_AGENT config flag
             if self.abstract_generator and (not abstract or len(abstract.strip()) < 100):
                 try:
                     generated_abstract = self.abstract_generator.generate(raw_text, max_length=500)
@@ -186,7 +192,9 @@ class OrchestratorAgent:
                     print(f"[Orchestrator] ⚠️ Abstract generation failed: {e}")
                     # Keep existing abstract even if generation fails
             else:
-                if abstract and len(abstract.strip()) >= 100:
+                if not self.abstract_generator:
+                    print(f"[Orchestrator] ℹ️ Abstract Generator disabled (USE_ABSTRACT_AGENT=false)")
+                elif abstract and len(abstract.strip()) >= 100:
                     print(f"[Orchestrator] ℹ️ Using existing abstract from NER ({len(abstract)} chars)")
                 else:
                     print(f"[Orchestrator] ⚠️ No abstract available")

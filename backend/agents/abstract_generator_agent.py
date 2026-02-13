@@ -26,7 +26,7 @@ class AbstractGeneratorAgent:
             api_key = os.environ.get("GEMINI_API_KEY")
             if api_key:
                 genai.configure(api_key=api_key)
-                # Use gemini-1.5-flash (fast and efficient) or gemini-1.5-pro (more capable)
+                # Use gemini-3-flash (more capable)
                 self.model = genai.GenerativeModel('gemini-3-flash-preview')
                 print("[AbstractGenerator] Gemini API configured successfully (gemini-3-flash-preview)")
             else:
