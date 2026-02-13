@@ -5,6 +5,7 @@ Orchestrator coordinates the complete document processing pipeline.
 Pipeline: OCR → NER (with categorization) → Abstract Generation → Database Persistence
 """
 
+from annotated_types import doc
 from agents.ocr_agent import OcrAgent
 from agents.ner_agent import NerAgent
 from agents.abstract_generator_agent import AbstractGeneratorAgent
@@ -48,8 +49,8 @@ class OrchestratorAgent:
             self.ner_agent = None
         
         try:
-            self.abstract_generator = AbstractGeneratorAgent(method='extractive')
-            print("[Orchestrator] ✅ Abstract Generator initialized")
+            self.abstract_generator = AbstractGeneratorAgent(method='gemini')
+            print("[Orchestrator] ✅ Abstract Generator initialized (Gemini API)")
         except Exception as e:
             print(f"[Orchestrator] ⚠️ Abstract Generator init failed: {e}")
             self.abstract_generator = None
@@ -158,34 +159,37 @@ class OrchestratorAgent:
             event_date_str = ner_result.get("date")
             venue = ner_result.get("venue") or "Venue not specified"
             organizer = ner_result.get("organizer") or "Organizer not specified"
-            department = ner_result.get("department") or doc.department or "General"
+            department = ner_result.get("department")
+            if not department or department == "General":
+                # Use the uploader's department as fallback
+                department = doc.department or "General"
+                print(f"[Orchestrator] Using uploader's department: {department}")
             abstract = ner_result.get("abstract") or ""
 
             # ========================================
-            # STEP 3: Abstract Generation (Reports Only)
+            # STEP 3: Abstract Generation (Reports & Certificates)
             # ========================================
-            if doc_type == "Report":
-                print(f"\n{'─'*70}")
-                print("[Orchestrator] 📝 STEP 3: Abstract Generation...")
-                print(f"{'─'*70}")
-                
-                if self.abstract_generator and (not abstract or len(abstract.strip()) < 100):
-                    try:
-                        generated_abstract = self.abstract_generator.generate(raw_text, max_length=500)
-                        if generated_abstract and len(generated_abstract) > len(abstract):
-                            abstract = generated_abstract
-                            print(f"[Orchestrator] ✅ Abstract generated ({len(abstract)} chars)")
-                        else:
-                            print(f"[Orchestrator] ℹ️ Using NER-extracted abstract")
-                    except Exception as e:
-                        print(f"[Orchestrator] ⚠️ Abstract generation failed: {e}")
-                else:
-                    print(f"[Orchestrator] ℹ️ Using existing abstract from NER")
+            print(f"\n{'─'*70}")
+            print(f"[Orchestrator] 📝 STEP 3: Abstract Generation for {doc_type}...")
+            print(f"{'─'*70}")
+            
+            # Generate abstracts for both Reports and Certificates since both contain event details
+            if self.abstract_generator and (not abstract or len(abstract.strip()) < 100):
+                try:
+                    generated_abstract = self.abstract_generator.generate(raw_text, max_length=500)
+                    if generated_abstract and len(generated_abstract) > len(abstract):
+                        abstract = generated_abstract
+                        print(f"[Orchestrator] ✅ Abstract generated ({len(abstract)} chars)")
+                    else:
+                        print(f"[Orchestrator] ℹ️ Using NER-extracted abstract")
+                except Exception as e:
+                    print(f"[Orchestrator] ⚠️ Abstract generation failed: {e}")
+                    # Keep existing abstract even if generation fails
             else:
-                print(f"\n{'─'*70}")
-                print("[Orchestrator] 📝 STEP 3: Skipping abstract (Certificate)")
-                print(f"{'─'*70}")
-                abstract = ""  # Ensure no abstract for certificates
+                if abstract and len(abstract.strip()) >= 100:
+                    print(f"[Orchestrator] ℹ️ Using existing abstract from NER ({len(abstract)} chars)")
+                else:
+                    print(f"[Orchestrator] ⚠️ No abstract available")
 
             # ========================================
             # STEP 4: Date Normalization

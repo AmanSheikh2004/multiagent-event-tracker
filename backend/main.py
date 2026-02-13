@@ -238,7 +238,8 @@ def create_app():
             "date": ev.date.isoformat() if ev.date else None,
             "department": ev.department,
             "category": ev.category,
-            "validated": ev.validated
+            "validated": ev.validated,
+            "type": ev.type 
         } for ev in d.events]
 
         # 🧩 New helper — fetch entity value by name
