@@ -147,9 +147,9 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
   const isCertificate = docType === "Certificate";
 
   return (
-    <div className="fixed inset-0 flex items-start justify-center p-6 z-50">
+    <div className="fixed inset-0 flex items-start justify-center p-4 z-50">
       <div className="absolute inset-0 bg-black opacity-40" onClick={onClose}></div>
-      <div className="bg-white rounded-lg p-6 shadow-xl relative z-50 w-full max-w-3xl max-h-[85vh] overflow-auto">
+      <div className="bg-white rounded-lg p-6 shadow-xl relative z-50 w-full max-w-7xl max-h-[90vh] overflow-auto">
         {/* Header with Document Type Badge */}
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Document Review & Validation</h2>
@@ -164,26 +164,47 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           </span>
         </div>
 
-        <a href={fileUrl} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 underline font-medium flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          Open Uploaded File
-        </a>
-
-
-        {errors.length > 0 && (
-          <div className="alert-error mt-3 text-sm">
-            <strong>Validation Issues:</strong>
-            <ul className="list-disc ml-5">
-              {errors.map((err, idx) => (
-                <li key={idx}>{err}</li>
-              ))}
-            </ul>
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left Column - Document Viewer */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-700">Document Preview</h3>
+              <a href={fileUrl} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 underline text-sm font-medium flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                Open in New Tab
+              </a>
+            </div>
+            <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100 sticky top-0 flex items-center justify-center">
+              <iframe
+                src={fileUrl}
+                className="w-full h-[calc(90vh-12rem)]"
+                title="Document Preview"
+                style={{ 
+                  border: 'none',
+                  objectFit: 'contain',
+                  display: 'block'
+                }}
+              />
+            </div>
           </div>
-        )}
 
-        <div className="mt-4 space-y-3">
+          {/* Right Column - Form Fields */}
+          <div className="space-y-4">
+            {errors.length > 0 && (
+              <div className="alert-error text-sm">
+                <strong>Validation Issues:</strong>
+                <ul className="list-disc ml-5">
+                  {errors.map((err, idx) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="space-y-3">
           <label className="block">
             <span className="text-sm font-medium">Event Name:</span>
             <input
@@ -300,6 +321,8 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
             <button onClick={onClose} className="btn-secondary">
               Close
             </button>
+          </div>
+        </div>
           </div>
         </div>
       </div>

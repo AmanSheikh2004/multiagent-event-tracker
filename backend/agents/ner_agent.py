@@ -252,67 +252,153 @@ class NerAgent:
         # If nothing matched, return empty (orchestrator will use user's department)
         return ''
     def _extract_event_name_fallback(self, text: str) -> str:
-        """Fallback regex extraction for event name with aggressive patterns"""
-        patterns = [
-            # Pattern 1: Report/Certificate ON (most common)
-            r'(?i)(?:REPORT|CERTIFICATE|REPORT\s+ON)\s+(?:ON|OF|FOR)?\s*[:\-]?\s*([A-Z][^\n]{8,150}?)(?=\s*(?:Date|Venue|Organized|Department|\n\n|$))',
-            # Pattern 2: Title/Topic/Subject line
-            r'(?i)(?:title|topic|subject|name of (?:the )?event)\s*[:\-]\s*([^\n]{10,150})',
-            # Pattern 3: Event at beginning of line
-            r'(?i)^\s*(?:event|workshop|seminar|conference|training|competition)\s*(?:name)?[:\-]?\s*([A-Z][^\n]{10,120})',
-            # Pattern 4: Organized event pattern
-            r'(?i)organized\s+(?:a|an)?\s*(?:event|workshop|seminar|training|meetup|session)\s+(?:on|about|for)?\s*([A-Z][^\n]{10,120})',
-            # Pattern 5: On [Capitalized Title] (more strict)
-            r'(?i)(?:^|\n)\s*On\s+([A-Z][A-Z\s&\-\w]{10,150})\s*(?=\n|Date|Venue)',
-            # Pattern 6: Meetup/Session on
-            r'(?i)(?:meetup|session|meeting|gathering)\s+on\s+([A-Z][^\n]{10,120})',
-            # Pattern 7: All caps title (first line)
-            r'^([A-Z][A-Z\s&\-]{8,100})(?=\n)',
-            # Pattern 8: Between quotes or after colon
-            r'[:"]\s*([A-Z][^\n"]{15,120}?)(?="|\n|Date)',
+        """Fallback regex extraction for event name with position-aware scoring"""
+        
+        # Extract first 1000 chars (main header section)
+        header_text = text[:1000] if len(text) > 1000 else text
+        
+        # High-priority patterns (only search header)
+        high_priority_patterns = [
+            # Pattern 1: Quoted text after "On" (most reliable for FOSS reports)
+            (r'(?i)\bOn\s*\n?\s*["\']([^"\']{10,120})["\']', 100),
+            # Pattern 2: Text immediately after "On" keyword at doc start
+            (r'(?i)(?:^|\n)\s*On\s*\n\s*([^\n]{10,120}?)(?=\s*\n\s*\d{1,2})', 95),
+            # Pattern 3: Between quotes near top
+            (r'^[^"\']{0,200}["\']([^"\']{10,120})["\']', 90),
         ]
         
-        for pattern in patterns:
-            match = re.search(pattern, text, re.MULTILINE)
+        # Try high-priority patterns in header first
+        for pattern, priority in high_priority_patterns:
+            match = re.search(pattern, header_text, re.MULTILINE)
             if match:
                 name = match.group(1).strip()
+                name = self._clean_event_name(name)
+                if self._is_valid_event_name(name):
+                    print(f"[NerAgent][FALLBACK] Event name (header, priority={priority}): '{name}'")
+                    return name
+        
+        # Medium-priority patterns (search full text but score by position)
+        medium_priority_patterns = [
+            # Pattern 4: Report/Certificate ON
+            r'(?i)(?:REPORT|CERTIFICATE)\s+(?:ON|OF|FOR|on)\s*[:\-]?\s*([^\n]{8,150}?)(?=\s*(?:\n\s*\d{1,2}|\n\s*Date|\n\s*Venue|\n\n))',
+            # Pattern 5: Title/Topic/Subject line
+            r'(?i)(?:title|topic|subject|name of (?:the )?event)\s*[:\-]\s*([^\n]{10,150})',
+            # Pattern 6: On + Capitalized (relaxed case)
+            r'(?i)(?:^|\n)\s*On\s+([A-Z][^\n]{8,150}?)(?=\s*\n)',
+            # Pattern 7: Event/Workshop at line start
+            r'(?i)^[ \t]*(?:event|workshop|seminar|conference|training|competition)\s*(?:name)?[:\-]?\s*([A-Z][^\n]{10,120})',
+        ]
+        
+        candidates = []
+        for pattern in medium_priority_patterns:
+            for match in re.finditer(pattern, text, re.MULTILINE):
+                name = match.group(1).strip()
+                position = match.start()
                 
-                # Clean up the extracted name
-                name = re.sub(r'\s+', ' ', name)  # Normalize whitespace
-                name = re.sub(r'^(the|a|an)\s+', '', name, flags=re.IGNORECASE)  # Remove articles
-                name = name.strip('.,;:!?')  # Remove trailing punctuation
+                # Calculate position score (prefer earlier positions)
+                # Position 0-500: score 80, 500-1000: score 60, 1000+: score 40
+                if position < 500:
+                    pos_score = 80
+                elif position < 1000:
+                    pos_score = 60
+                else:
+                    pos_score = 40
                 
-                # More aggressive cleaning
-                name = re.sub(r'\s+(Date|Venue|Organized|Department|Report).*$', '', name, flags=re.IGNORECASE)
-                name = re.sub(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}.*$', '', name)  # Remove dates at end
-                name = re.sub(r'\s+\d{4}$', '', name)  # Remove year at end
-                name = name.strip()
-                
-                # Skip if it's too generic or contains noise
-                noise_patterns = [
-                    r'^(event|report|certificate|document|date|venue|organized)$',  # Single generic words
-                    r'^\d{4}-\d{2}-\d{2}',  # ISO dates
-                    r'^page \d+',
-                    r'^\d+$',  # Just numbers
-                    r'^[A-Z]{1,3}$',  # Short acronyms without context
-                ]
-                
-                is_noise = any(re.search(p, name, re.IGNORECASE) for p in noise_patterns)
-                if is_noise:
-                    continue
-                
-                # Reject very short extractions (likely fragments)
-                word_count = len(name.split())
-                if word_count < 2 and len(name) < 10:
-                    print(f"[NerAgent][FALLBACK] Rejected short event name: '{name}'")
-                    continue
-                
-                # Valid length check (at least 8 chars for meaningful names)
-                if 8 <= len(name) <= 150:
-                    print(f"[NerAgent][FALLBACK] Event name extracted: '{name}' ({word_count} words)")
+                name = self._clean_event_name(name)
+                if self._is_valid_event_name(name):
+                    candidates.append((name, pos_score, position))
+        
+        # Sort by score (descending) then position (ascending)
+        if candidates:
+            candidates.sort(key=lambda x: (-x[1], x[2]))
+            best_name = candidates[0][0]
+            best_score = candidates[0][1]
+            best_pos = candidates[0][2]
+            print(f"[NerAgent][FALLBACK] Event name (position={best_pos}, score={best_score}): '{best_name}'")
+            return best_name
+        
+        # Low-priority patterns (last resort, only first 2000 chars)
+        low_priority_text = text[:2000] if len(text) > 2000 else text
+        low_priority_patterns = [
+            # Pattern 8: All caps title (first few lines)
+            r'(?:^|\n)([A-Z][A-Z\s&\-]{8,100})(?=\n)',
+            # Pattern 9: Organized event
+            r'(?i)organized\s+(?:a|an)?\s*(?:event|workshop|seminar)\s+(?:on|about)?\s*["]?([A-Z][^\n"]{10,120})',
+        ]
+        
+        for pattern in low_priority_patterns:
+            match = re.search(pattern, low_priority_text, re.MULTILINE)
+            if match:
+                name = match.group(1).strip()
+                name = self._clean_event_name(name)
+                if self._is_valid_event_name(name):
+                    print(f"[NerAgent][FALLBACK] Event name (low priority): '{name}'")
                     return name
         
         return ''
+    
+    def _clean_event_name(self, name: str) -> str:
+        """Clean and normalize extracted event name"""
+        # Normalize whitespace
+        name = re.sub(r'\s+', ' ', name)
+        
+        # Remove articles at start
+        name = re.sub(r'^(the|a|an)\s+', '', name, flags=re.IGNORECASE)
+        
+        # Remove trailing punctuation
+        name = name.strip('.,;:!?')
+        
+        # Remove common suffixes that indicate incomplete extraction
+        name = re.sub(r'\s+(Date|Venue|Organized|Department|Report|on|at|by).*$', '', name, flags=re.IGNORECASE)
+        
+        # Remove dates at end
+        name = re.sub(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}.*$', '', name)
+        name = re.sub(r'\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{4}.*$', '', name, flags=re.IGNORECASE)
+        
+        # Remove time ranges (e.g., "1:20 PM - 2:05 PM")
+        name = re.sub(r'\s+\d{1,2}:\d{2}\s*(?:AM|PM).*$', '', name, flags=re.IGNORECASE)
+        
+        # Clean up quotes if present
+        name = name.strip('"\'')
+        
+        return name.strip()
+    
+    def _is_valid_event_name(self, name: str) -> bool:
+        """Validate if extracted text is a reasonable event name"""
+        if not name:
+            return False
+        
+        # Length check
+        if len(name) < 8 or len(name) > 150:
+            return False
+        
+        # Word count check (at least 2 words or 10+ chars for single word)
+        words = name.split()
+        if len(words) < 2 and len(name) < 10:
+            return False
+        
+        # Check for noise patterns
+        noise_patterns = [
+            r'^(event|report|certificate|document|date|venue|organized|on|the|course)$',
+            r'^\d{4}-\d{2}-\d{2}',  # ISO dates
+            r'^page \d+',
+            r'^\d+$',  # Just numbers
+            r'^[A-Z]{1,3}$',  # Very short acronyms
+            r'submitted\s+by',  # Document metadata
+            r'under\s+the\s+supervision',
+            r'^\s*by\s+',
+        ]
+        
+        for pattern in noise_patterns:
+            if re.search(pattern, name, re.IGNORECASE):
+                return False
+        
+        # Reject if it's mostly numbers/punctuation
+        alpha_chars = sum(c.isalpha() for c in name)
+        if alpha_chars < len(name) * 0.5:
+            return False
+        
+        return True
 
     def _extract_date_fallback(self, text: str) -> str:
         """Fallback regex extraction for dates"""
@@ -694,6 +780,10 @@ class NerAgent:
             for lv in label_variants:
                 candidates.extend(by_type.get(lv, []))
 
+            if not candidates:
+                print(f"[NerAgent][MODEL] {field}: Not detected by model (will use fallback)")
+                continue
+            
             if candidates:
                 chosen = choose_best(candidates)
                 
