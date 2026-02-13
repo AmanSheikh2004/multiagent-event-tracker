@@ -99,9 +99,9 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
 
       if (res.data.errors?.length) {
         setErrors(res.data.errors);
-        alert("⚠️ Please fix the highlighted fields.");
+        alert("Please fix the highlighted fields before proceeding.");
       } else {
-        alert("✅ Event validated successfully!");
+        alert("Event validated successfully!");
         onValidated(evId);
         onClose();
       }
@@ -123,7 +123,7 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
       );
 
       if (res.status === 200) {
-        alert("❌ Document marked as NOT valid. Student will be notified.");
+        alert("Document marked as not valid. Student will be notified.");
         onValidated(evId);
         onClose();
       }
@@ -141,6 +141,9 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
 
   // Get document type badge
   const docType = doc?.events?.[0]?.type || "Report";
+
+  "Report";
+
   const isCertificate = docType === "Certificate";
 
   return (
@@ -151,24 +154,27 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Document Review & Validation</h2>
           <span
-            className={`px-3 py-1 rounded-full text-sm font-semibold ${
+            className={`badge ${
               isCertificate
                 ? "bg-purple-100 text-purple-700 border border-purple-300"
                 : "bg-blue-100 text-blue-700 border border-blue-300"
             }`}
           >
-            {isCertificate ? "📜 Certificate" : "📄 Report"}
+            {isCertificate ? "Certificate" : "Report"}
           </span>
         </div>
 
-        <a href={fileUrl} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-          📄 Open Uploaded File
+        <a href={fileUrl} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 underline font-medium flex items-center gap-2">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Open Uploaded File
         </a>
 
 
         {errors.length > 0 && (
-          <div className="bg-red-50 border border-red-400 text-red-600 p-2 mt-3 rounded text-sm">
-            <strong>⚠ Validation Issues:</strong>
+          <div className="alert-error mt-3 text-sm">
+            <strong>Validation Issues:</strong>
             <ul className="list-disc ml-5">
               {errors.map((err, idx) => (
                 <li key={idx}>{err}</li>
@@ -265,20 +271,6 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           </label>
         </div>
 
-        <div className="mt-4">
-          <h3 className="font-semibold">Extracted Entities</h3>
-          <ul className="list-disc pl-5 text-sm">
-            {doc?.entities?.length ? (
-              doc.entities.map((e, i) => (
-                <li key={i}>
-                  <strong>{e.entity_type}</strong>: {e.entity_value} (conf: {e.confidence})
-                </li>
-              ))
-            ) : (
-              <li>No entities found.</li>
-            )}
-          </ul>
-        </div>
 
         <div className="mt-6 space-y-2">
           <label className="block">
@@ -295,17 +287,17 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           <div className="flex justify-end gap-3">
             <button
               onClick={handleValidate}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+              className="btn-success"
             >
-              ✅ Validate & Save
+              Validate & Save
             </button>
             <button
               onClick={handleReject}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+              className="btn-danger"
             >
-              ❌ Discard / Not Valid
+              Mark as Invalid
             </button>
-            <button onClick={onClose} className="bg-gray-300 px-4 py-2 rounded">
+            <button onClick={onClose} className="btn-secondary">
               Close
             </button>
           </div>

@@ -685,6 +685,11 @@ class NerAgent:
 
         # First pass: Extract from NER predictions with quality filtering
         for field, label_variants in mapping.items():
+            # TEMPORARY: Skip NER extraction for EVENT_NAME, use only fallback
+            if field == 'EVENT_NAME':
+                print(f"[NerAgent][MODEL] {field}: Skipping NER (using fallback only)")
+                continue
+            
             candidates: List[NerPrediction] = []
             for lv in label_variants:
                 candidates.extend(by_type.get(lv, []))
