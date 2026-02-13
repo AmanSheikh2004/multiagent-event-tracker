@@ -1,5 +1,10 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 BASE_DIR = Path(__file__).resolve().parent
 
 class Config:
@@ -8,4 +13,5 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', str(BASE_DIR/'static'/'uploads'))
     JWT_SECRET = os.environ.get('JWT_SECRET', 'jwt-secret-key')
+    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
     DEV_MODE = True  # Toggle off in production

@@ -1,41 +1,47 @@
 # abstract_generator_agent.py
 """
 Abstract Generator Agent - generates summaries/abstracts from event reports
-Currently a placeholder that will be enhanced with:
-- Extractive summarization (TextRank, BERT)
-- Abstractive summarization (T5, BART)
-- LLM-based generation (GPT, Claude API)
+Uses Google Gemini API for intelligent abstract generation
 """
 
 import re
+import os
 from typing import Optional
+import google.generativeai as genai
 
 
 class AbstractGeneratorAgent:
-    def __init__(self, method: str = 'extractive'):
+    def __init__(self, method: str = 'gemini'):
         """
         Initialize Abstract Generator
         
         Args:
-            method: 'extractive', 'abstractive', or 'llm'
+            method: 'gemini' (default), 'extractive', or 'fallback'
         """
         self.method = method
         print(f"[AbstractGenerator] Initialized with method: {method}")
         
-        # Future: Load models based on method
-        # if method == 'abstractive':
-        #     from transformers import pipeline
-        #     self.summarizer = pipeline('summarization', model='facebook/bart-large-cnn')
-        # elif method == 'llm':
-        #     import anthropic
-        #     self.client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        # Initialize Gemini API
+        if method == 'gemini':
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if api_key:
+                genai.configure(api_key=api_key)
+                # Use gemini-1.5-flash (fast and efficient) or gemini-1.5-pro (more capable)
+                self.model = genai.GenerativeModel('gemini-3-flash-preview')
+                print("[AbstractGenerator] Gemini API configured successfully (gemini-3-flash-preview)")
+            else:
+                print("[AbstractGenerator] Warning: GEMINI_API_KEY not found, falling back to extractive method")
+                self.method = 'extractive'
+                self.model = None
+        else:
+            self.model = None
         
     def generate(self, text: str, max_length: int = 300) -> str:
         """
-        Generate abstract from text
+        Generate abstract from text using Gemini API
         
         Args:
-            text: Full document text
+            text: Full document text (report/certificate)
             max_length: Maximum length of generated abstract
             
         Returns:
@@ -44,11 +50,65 @@ class AbstractGeneratorAgent:
         if not text or len(text.strip()) < 100:
             return "Insufficient content for abstract generation."
         
-        # Placeholder: Use simple extractive method
-        abstract = self._extractive_summary(text, max_length)
+        # Try Gemini API first
+        if self.method == 'gemini' and self.model:
+            try:
+                abstract = self._gemini_summary(text, max_length)
+                print(f"[AbstractGenerator] Generated {len(abstract)} character abstract using Gemini")
+                return abstract
+            except Exception as e:
+                print(f"[AbstractGenerator] Gemini API failed: {e}, falling back to extractive")
+                abstract = self._extractive_summary(text, max_length)
+        else:
+            # Fallback to extractive method
+            abstract = self._extractive_summary(text, max_length)
         
         print(f"[AbstractGenerator] Generated {len(abstract)} character abstract")
         return abstract
+    
+    def _gemini_summary(self, text: str, max_length: int) -> str:
+        """
+        Generate abstract using Google Gemini API
+        
+        Args:
+            text: Full document text
+            max_length: Maximum length of abstract
+            
+        Returns:
+            Generated abstract
+        """
+        # Truncate text if too long (Gemini has token limits)
+        max_input_length = 10000
+        if len(text) > max_input_length:
+            text = text[:max_input_length] + "..."
+        
+        prompt = f"""Analyze the following event report or certificate document and generate a concise, informative abstract.
+
+The abstract should:
+- Be approximately {max_length} characters long
+- Capture the key information: event name, date, purpose, participants, and outcomes
+- Be written in professional, clear language
+- Focus on the most important details
+- Be suitable for quick reference and documentation
+
+Document text:
+{text}
+
+Generate the abstract:"""
+        
+        try:
+            response = self.model.generate_content(prompt)
+            abstract = response.text.strip()
+            
+            # Ensure length constraint
+            if len(abstract) > max_length + 100:
+                abstract = abstract[:max_length] + "..."
+            
+            return abstract
+        
+        except Exception as e:
+            print(f"[AbstractGenerator] Gemini API error: {e}")
+            raise
     
     def _extractive_summary(self, text: str, max_length: int) -> str:
         """
@@ -96,36 +156,9 @@ class AbstractGeneratorAgent:
         
         return '. '.join(result) + '.'
     
-    def _abstractive_summary(self, text: str, max_length: int) -> str:
-        """
-        Abstractive summarization using transformer models
-        TODO: Implement when model is loaded
-        """
-        # Placeholder for future implementation
-        # outputs = self.summarizer(text, max_length=max_length, min_length=50)
-        # return outputs[0]['summary_text']
-        return self._extractive_summary(text, max_length)
-    
-    def _llm_summary(self, text: str, max_length: int) -> str:
-        """
-        LLM-based summarization using Claude/GPT
-        TODO: Implement with API calls
-        """
-        # Placeholder for future implementation
-        # response = self.client.messages.create(
-        #     model="claude-3-haiku-20240307",
-        #     max_tokens=512,
-        #     messages=[{
-        #         "role": "user",
-        #         "content": f"Summarize this event report in {max_length} characters:\n\n{text}"
-        #     }]
-        # )
-        # return response.content[0].text
-        return self._extractive_summary(text, max_length)
-    
     def enhance_abstract(self, existing_abstract: str, full_text: str) -> str:
         """
-        Enhance or expand an existing abstract
+        Enhance or expand an existing abstract using Gemini
         
         Args:
             existing_abstract: Current abstract (may be incomplete)
@@ -137,9 +170,28 @@ class AbstractGeneratorAgent:
         if not existing_abstract or len(existing_abstract.strip()) < 50:
             return self.generate(full_text)
         
-        # If existing abstract is good, return it
+        # If existing abstract is good enough, return it
         if len(existing_abstract) >= 200:
             return existing_abstract
+        
+        # Use Gemini to enhance if available
+        if self.method == 'gemini' and self.model:
+            try:
+                prompt = f"""The following is an incomplete or brief abstract for a document:
+
+{existing_abstract}
+
+Full document text:
+{full_text[:5000]}
+
+Please enhance this abstract to make it more comprehensive and informative (300-400 characters), while preserving the key information."""
+                
+                response = self.model.generate_content(prompt)
+                enhanced = response.text.strip()
+                print(f"[AbstractGenerator] Enhanced abstract using Gemini")
+                return enhanced
+            except Exception as e:
+                print(f"[AbstractGenerator] Enhancement failed: {e}, generating fresh abstract")
         
         # Otherwise, generate fresh one
         return self.generate(full_text)
