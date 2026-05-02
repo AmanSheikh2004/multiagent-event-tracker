@@ -392,22 +392,42 @@ def create_app():
     @role_required(['iqc', 'teacher', 'student'])
     def department_details(current_user, dept):
         try:
-            categories = ["Seminar", "Workshop", "Competitions", "General Event"]
+            categories = [
+                "Seminar",
+                "Workshop / Hands-on / Training",
+                "Guest Lecture / Expert Talk",
+                "Conference / Symposium",
+                "Competition / Hackathon / Quiz",
+                "Orientation / Induction / Welcome",
+                "Research / Report / Paper Presentation",
+                "General / Department Activity",
+            ]
             events = Event.query.filter_by(department=dept, validated=True).all()
 
-            # Group events by category
+            # Group events by category (fuzzy match like report generator)
             grouped = {cat: [] for cat in categories}
             for e in events:
-                cat = e.category.strip() if e.category else "General Event"
-                if cat not in grouped:
-                    grouped[cat] = []
-                grouped[cat].append({
-                    "id": e.id,
-                    "name": e.name,
-                    "date": e.date.isoformat() if e.date else None,
-                    "category": e.category,
-                    "validated": e.validated
-                })
+                matched = False
+                raw_cat = e.category.strip() if e.category else ""
+                for cat in categories:
+                    if cat.split("/")[0].strip().lower() in raw_cat.lower():
+                        grouped[cat].append({
+                            "id": e.id,
+                            "name": e.name,
+                            "date": e.date.isoformat() if e.date else None,
+                            "category": cat,
+                            "validated": e.validated
+                        })
+                        matched = True
+                        break
+                if not matched:
+                    grouped["General / Department Activity"].append({
+                        "id": e.id,
+                        "name": e.name,
+                        "date": e.date.isoformat() if e.date else None,
+                        "category": "General / Department Activity",
+                        "validated": e.validated
+                    })
 
             return jsonify({"department": dept, "events_by_category": grouped}), 200
 
@@ -870,6 +890,46 @@ def create_app():
         except Exception as e:
             print("[Validate] ❌ Error:", e)
             return jsonify({"message": "Validation failed", "error": str(e)}), 500
+    
+    @app.route('/api/validate/<int:event_id>/save', methods=['POST'])
+    @token_required
+    @role_required(['teacher', 'iqc'])
+    def save_event_without_validation(current_user, event_id):
+        """Save event data without validation - allows partial completion"""
+        try:
+            event = Event.query.get_or_404(event_id)
+            data = request.get_json() or {}
+            print("[Save] Saving event without validation:", data)
+
+            # Update event fields directly without validation
+            if data.get("name"):
+                event.name = data.get("name")
+            if data.get("date"):
+                event.date = datetime.datetime.strptime(data.get("date"), "%Y-%m-%d").date()
+            if data.get("category"):
+                event.category = data.get("category")
+            if data.get("department"):
+                event.department = data.get("department")
+            
+            # Optional fields
+            event.venue = data.get("venue", "")
+            event.organizer = data.get("organizer", "")
+            event.abstract = data.get("abstract", "")
+            
+            # Add reviewer comment if provided
+            if data.get("comment"):
+                event.reviewer_comment = data.get("comment")
+            
+            # Keep validated as False - this is a draft save
+            event.validated = False
+            db.session.commit()
+
+            print(f"[Save] ✅ Event {event.id} saved (without validation) by {current_user.username}")
+            return jsonify({"message": "saved", "event_id": event.id}), 200
+
+        except Exception as e:
+            print("[Save] ❌ Error:", e)
+            return jsonify({"message": "Save failed", "error": str(e)}), 500
     
     @app.route('/api/validate/<int:event_id>/reject', methods=['POST'])
     @token_required

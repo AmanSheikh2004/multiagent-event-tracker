@@ -83,6 +83,30 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleSave = async () => {
+    try {
+      const evId = doc.events[0].id;
+      const res = await axios.post(
+        `http://localhost:5000/api/validate/${evId}/save`,
+        form,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (res.status === 200) {
+        alert("Event data saved successfully! (Validation pending)");
+        onClose();
+      }
+    } catch (e) {
+      console.error("Save failed", e);
+      alert("Save failed!");
+    }
+  };
+
   const handleValidate = async () => {
     try {
       const evId = doc.events[0].id;
@@ -306,6 +330,12 @@ function DocumentModal({ open, onClose, docId, token, onValidated }) {
           </label>
 
           <div className="flex justify-end gap-3">
+            <button
+              onClick={handleSave}
+              className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+            >
+              Save
+            </button>
             <button
               onClick={handleValidate}
               className="btn-success"

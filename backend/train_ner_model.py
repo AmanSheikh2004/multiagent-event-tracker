@@ -3,22 +3,39 @@ train_ner_model.py
 
 Train NER model using the converted Label Studio data.
 The NER model handles all entity extraction including:
-- EVENT_NAME, DATE, VENUE, ORGANIZER, DEPARTMENT
-- CATEGORY (as an entity)
-- DOC_TYPE (as an entity)
-- ABSTRACT (for reports)
+- EVENT_NAME, DATE, VENUE, ORGANIZER, DEPARTMENT (core fields)
+- CATEGORY, DOC_TYPE (document classification)
+
+Note: ABSTRACT is handled separately, not part of NER training.
 
 Usage:
-    python train_ner_model.py --data training_data/ner_training_data.json \
-                              --output-dir backend/ml_models/ner_model \
-                              --epochs 5
+    # Quick start with optimal defaults (25 epochs, clean checkpoints)
+    python train_ner_model.py --clean --interactive
+    
+    # Quick training with auto-yes
+    python train_ner_model.py --clean -y
+    
+    # Custom configuration
+    python train_ner_model.py --epochs 30 --learning-rate 3e-5 --clean
+    
+    # Advanced options
+    python train_ner_model.py --data training_data/ner_training_data.json \\
+                              --output-dir ml_models/ner_model \\
+                              --epochs 25 \\
+                              --batch-size 8 \\
+                              --learning-rate 3e-5 \\
+                              --clean \\
+                              --interactive
 """
 
 import json
 import argparse
+import shutil
 from pathlib import Path
 from typing import List, Dict
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from transformers import (
     AutoTokenizer,
@@ -33,19 +50,174 @@ import numpy as np
 # -------------------------
 # Constants
 # -------------------------
+# Focused NER labels - prioritizing key document fields
+# ABSTRACT removed (handled separately via summarization or other method)
 NER_LABELS = [
     'O',
-    'B-EVENT_NAME', 'I-EVENT_NAME',
+    'B-EVENT_NAME', 'I-EVENT_NAME',      # Priority: High
     'B-DATE', 'I-DATE',
     'B-VENUE', 'I-VENUE',
     'B-ORGANIZER', 'I-ORGANIZER',
-    'B-DEPARTMENT', 'I-DEPARTMENT',
-    'B-ABSTRACT', 'I-ABSTRACT',
-    'B-CATEGORY', 'I-CATEGORY',
-    'B-DOC_TYPE', 'I-DOC_TYPE'
+    'B-DEPARTMENT', 'I-DEPARTMENT',      # Priority: High
+    'B-CATEGORY', 'I-CATEGORY',           # Priority: High (event type)
+    'B-DOC_TYPE', 'I-DOC_TYPE'            # Priority: High
 ]
 
 DEFAULT_MODEL = 'bert-base-uncased'
+
+
+# -------------------------
+# Focal Loss + Dice Loss
+# -------------------------
+class FocalLoss(nn.Module):
+    """
+    Focal Loss (Lin et al., 2017) for token classification.
+    Down-weights easy examples and focuses training on hard entity boundaries.
+    FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
+    """
+    def __init__(self, alpha: float = 1.0, gamma: float = 2.0, ignore_index: int = -100):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.ignore_index = ignore_index
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # logits: (batch, seq_len, num_classes)  targets: (batch, seq_len)
+        num_classes = logits.size(-1)
+        logits_flat = logits.view(-1, num_classes)          # (N, C)
+        targets_flat = targets.view(-1)                      # (N,)
+
+        # Mask out ignored tokens
+        mask = targets_flat != self.ignore_index
+        logits_flat = logits_flat[mask]
+        targets_flat = targets_flat[mask]
+
+        if targets_flat.numel() == 0:
+            return torch.tensor(0.0, device=logits.device, requires_grad=True)
+
+        # Use cross_entropy with reduction='none' (avoids one_hot on CUDA)
+        ce_loss = F.cross_entropy(logits_flat, targets_flat, reduction='none')  # (N,)
+        probs = F.softmax(logits_flat.detach(), dim=-1)
+        p_t = probs.gather(1, targets_flat.unsqueeze(1)).squeeze(1)  # (N,)
+
+        focal_weight = self.alpha * (1.0 - p_t) ** self.gamma
+        loss = focal_weight * ce_loss
+
+        return loss.mean()
+
+
+class DiceLoss(nn.Module):
+    """
+    Dice Loss for token classification.
+    Directly optimises an F1-like overlap metric, effective for
+    class-imbalanced sequence labelling (most tokens are 'O').
+    DL = 1 - (2 * sum(p * y) + smooth) / (sum(p) + sum(y) + smooth)
+    """
+    def __init__(self, smooth: float = 1.0, ignore_index: int = -100):
+        super().__init__()
+        self.smooth = smooth
+        self.ignore_index = ignore_index
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        num_classes = logits.size(-1)
+        logits_flat = logits.view(-1, num_classes)
+        targets_flat = targets.view(-1)
+
+        mask = targets_flat != self.ignore_index
+        logits_flat = logits_flat[mask]
+        targets_flat = targets_flat[mask]
+
+        if targets_flat.numel() == 0:
+            return torch.tensor(0.0, device=logits.device, requires_grad=True)
+
+        probs = F.softmax(logits_flat, dim=-1)                          # (N, C)
+        # Build one-hot on CPU then move to device (avoids CUDA one_hot issues)
+        targets_one_hot = torch.zeros_like(probs)
+        targets_one_hot.scatter_(1, targets_flat.unsqueeze(1), 1.0)     # (N, C)
+
+        intersection = (probs * targets_one_hot).sum(dim=0)             # (C,)
+        cardinality = probs.sum(dim=0) + targets_one_hot.sum(dim=0)     # (C,)
+
+        dice_per_class = (2.0 * intersection + self.smooth) / (cardinality + self.smooth)
+        return 1.0 - dice_per_class.mean()
+
+
+class FocalDiceLoss(nn.Module):
+    """
+    Combined Focal Loss + Dice Loss.
+    L = lambda_focal * FL + lambda_dice * DL
+    Default weighting: 0.5 each (equal contribution).
+    """
+    def __init__(self, alpha: float = 1.0, gamma: float = 2.0,
+                 smooth: float = 1.0, ignore_index: int = -100,
+                 lambda_focal: float = 0.5, lambda_dice: float = 0.5):
+        super().__init__()
+        self.focal = FocalLoss(alpha=alpha, gamma=gamma, ignore_index=ignore_index)
+        self.dice = DiceLoss(smooth=smooth, ignore_index=ignore_index)
+        self.lambda_focal = lambda_focal
+        self.lambda_dice = lambda_dice
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        return self.lambda_focal * self.focal(logits, targets) + \
+               self.lambda_dice * self.dice(logits, targets)
+
+
+# -------------------------
+# Custom Trainer
+# -------------------------
+class NERTrainer(Trainer):
+    """
+    Custom Trainer that replaces default cross-entropy with
+    combined Focal Loss + Dice Loss for NER token classification.
+    """
+    def __init__(self, *args, custom_loss_fn=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.custom_loss_fn = custom_loss_fn or FocalDiceLoss()
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.pop('labels')
+        outputs = model(**inputs)
+        logits = outputs.logits   # (batch, seq_len, num_labels)
+        loss = self.custom_loss_fn(logits, labels)
+        return (loss, outputs) if return_outputs else loss
+
+
+# -------------------------
+# Checkpoint Cleaning
+# -------------------------
+def clean_checkpoints(model_dir: Path) -> int:
+    """Remove old checkpoint directories"""
+    if not model_dir.exists():
+        return 0
+    
+    checkpoints_removed = 0
+    for checkpoint in model_dir.glob('checkpoint-*'):
+        if checkpoint.is_dir():
+            print(f"   Removing: {checkpoint.name}")
+            shutil.rmtree(checkpoint)
+            checkpoints_removed += 1
+    
+    return checkpoints_removed
+
+
+def show_training_estimates(num_examples: int, epochs: int, batch_size: int):
+    """Display training time estimates"""
+    steps_per_epoch = num_examples / batch_size
+    total_steps = steps_per_epoch * epochs
+    
+    print(f"\n📊 Training Statistics:")
+    print(f"   • Training examples: {num_examples}")
+    print(f"   • Steps per epoch: {steps_per_epoch:.0f}")
+    print(f"   • Total training steps: {total_steps:.0f}")
+    print(f"   • Estimated time: ~{total_steps * 2 / 60:.0f}-{total_steps * 4 / 60:.0f} minutes")
+    
+    # Recommendations for small datasets
+    if num_examples < 200:
+        print(f"\n💡 Small Dataset Detected ({num_examples} examples):")
+        if epochs < 20:
+            print(f"   ⚠️  Consider training for 20-30 epochs instead of {epochs}")
+        if total_steps < 300:
+            print(f"   ⚠️  Total steps ({total_steps:.0f}) is low. Aim for 400-600 steps.")
 
 
 # -------------------------
@@ -210,15 +382,27 @@ def train_ner_model(
     # Data collator
     data_collator = DataCollatorForTokenClassification(tokenizer)
     
-    # Trainer
-    trainer = Trainer(
+    # Loss function: Combined Focal Loss + Dice Loss
+    loss_fn = FocalDiceLoss(
+        alpha=1.0,           # Focal loss class-balance factor
+        gamma=2.0,           # Focal loss focusing parameter
+        smooth=1.0,          # Dice loss smoothing
+        ignore_index=-100,   # Ignore special tokens
+        lambda_focal=0.5,    # Weight for Focal Loss component
+        lambda_dice=0.5,     # Weight for Dice Loss component
+    )
+    print(f"\n📐 Loss function: Focal Loss (γ=2.0) + Dice Loss (smooth=1.0)")
+    
+    # Trainer (custom NERTrainer with Focal+Dice loss)
+    trainer = NERTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=compute_metrics
+        compute_metrics=compute_metrics,
+        custom_loss_fn=loss_fn,
     )
     
     # Train
@@ -255,12 +439,18 @@ def main():
                        help='Directory for saving trained model')
     parser.add_argument('--base-model', type=str, default=DEFAULT_MODEL,
                        help='Base model for NER')
-    parser.add_argument('--epochs', type=int, default=3,
-                       help='Number of training epochs')
+    parser.add_argument('--epochs', type=int, default=25,
+                       help='Number of training epochs (default: 25 for small datasets)')
     parser.add_argument('--batch-size', type=int, default=8,
                        help='Batch size for training')
-    parser.add_argument('--learning-rate', type=float, default=2e-5,
-                       help='Learning rate')
+    parser.add_argument('--learning-rate', type=float, default=3e-5,
+                       help='Learning rate (default: 3e-5 for better convergence)')
+    parser.add_argument('--clean', action='store_true',
+                       help='Clean old checkpoints before training')
+    parser.add_argument('--interactive', action='store_true',
+                       help='Show recommendations and ask for confirmation')
+    parser.add_argument('--yes', '-y', action='store_true',
+                       help='Skip all confirmations (auto-yes)')
     
     args = parser.parse_args()
     
@@ -278,13 +468,42 @@ def main():
     print(f"   Epochs: {args.epochs}")
     print(f"   Batch Size: {args.batch_size}")
     print(f"   Learning Rate: {args.learning_rate}")
+    if args.clean:
+        print(f"   Clean Mode: ✅ Will remove old checkpoints")
     
-    # Load and train
+    # Load data first to show estimates
     try:
         train_data = load_json_data(args.data)
         print(f"\n✅ Loaded {len(train_data)} training examples")
         
-        train_ner_model(
+        # Show training estimates
+        show_training_estimates(len(train_data), args.epochs, args.batch_size)
+        
+        # Interactive confirmation
+        if args.interactive and not args.yes:
+            print("\n" + "=" * 70)
+            response = input("Continue with training? [Y/n]: ").strip().lower()
+            if response and response != 'y':
+                print("\n❌ Training cancelled")
+                return
+        
+        # Clean checkpoints if requested
+        if args.clean:
+            print("\n" + "=" * 70)
+            print("Cleaning old checkpoints...")
+            print("=" * 70)
+            removed = clean_checkpoints(output_dir)
+            if removed > 0:
+                print(f"✅ Removed {removed} checkpoint(s)")
+            else:
+                print("✅ No checkpoints to remove")
+        
+        # Train model
+        print("\n" + "=" * 70)
+        print("Starting Training...")
+        print("=" * 70)
+        
+        eval_results = train_ner_model(
             train_data=train_data,
             output_dir=str(output_dir),
             base_model=args.base_model,
@@ -294,14 +513,19 @@ def main():
         )
         
         print("\n" + "=" * 70)
-        print("Training Complete!")
+        print("✅ TRAINING COMPLETE!")
         print("=" * 70)
         print(f"\nModel saved to: {output_dir}")
+        if eval_results and 'eval_accuracy' in eval_results:
+            print(f"\nValidation Accuracy: {eval_results['eval_accuracy']:.2%}")
         print("\nNext steps:")
-        print("1. Test the model: python test_ner_agent.py")
-        print("2. Update your .env file:")
+        print("1. Test the model:")
+        print(f"   python test_ner_agent.py")
+        print("2. Update your .env file (if needed):")
         print(f"   NER_MODEL_DIR={output_dir}")
         print("3. Restart your application to use the new model")
+        print("\nQuick test command:")
+        print(f"   python test_ner_agent.py --ner-model {output_dir}")
         
     except Exception as e:
         print(f"\n❌ Training failed: {e}")
