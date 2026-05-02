@@ -18,6 +18,7 @@ import sys
 # -------------------------
 # Configuration / mappings
 # -------------------------
+# Focused NER labels (ABSTRACT removed - handled separately)
 LABEL_TO_ID = {
     'O': 0,
     'B-EVENT_NAME': 1, 'I-EVENT_NAME': 2,
@@ -25,9 +26,8 @@ LABEL_TO_ID = {
     'B-VENUE': 5, 'I-VENUE': 6,
     'B-ORGANIZER': 7, 'I-ORGANIZER': 8,
     'B-DEPARTMENT': 9, 'I-DEPARTMENT': 10,
-    'B-ABSTRACT': 11, 'I-ABSTRACT': 12,
-    'B-CATEGORY': 13, 'I-CATEGORY': 14,
-    'B-DOC_TYPE': 15, 'I-DOC_TYPE': 16
+    'B-CATEGORY': 11, 'I-CATEGORY': 12,
+    'B-DOC_TYPE': 13, 'I-DOC_TYPE': 14
 }
 
 # Comprehensive category mapping (from Label Studio labels to standardized categories)
@@ -90,8 +90,6 @@ LABEL_KEY_MAP = {
     
     'DEPARTMENT': 'DEPARTMENT',
     'DEPT': 'DEPARTMENT',
-    
-    'ABSTRACT': 'ABSTRACT',
     
     'CATEGORY': 'CATEGORY',
     

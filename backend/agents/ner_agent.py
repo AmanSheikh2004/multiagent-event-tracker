@@ -67,9 +67,30 @@ class NerAgent:
         self,
         ner_model_dir: str = NER_MODEL_DIR,
         ner_base_model: str = NER_MODEL_NAME,
-        device: int = None
+        device: int = None,
+        use_model: bool = None
     ):
-        """Initialize NER Agent"""
+        """Initialize NER Agent
+        
+        Args:
+            use_model: If False, skip loading the BERT model entirely and
+                       rely on regex fallback extractors only.
+                       Reads USE_NER_MODEL env var / Config when None.
+        """
+        # Decide whether to load the transformer model
+        if use_model is None:
+            from config import Config
+            use_model = Config.USE_NER_MODEL
+        self.use_model = use_model
+
+        # Initialize OCR preprocessor for text cleaning
+        self.ocr_preprocessor = OCRPreprocessor()
+
+        if not self.use_model:
+            self.ner_pipeline = None
+            print("[NerAgent] ⚡ Fallback-only mode (USE_NER_MODEL=false) — BERT model NOT loaded")
+            return
+
         # Device selection
         if device is None:
             self.device = 0 if torch.cuda.is_available() else -1
@@ -91,38 +112,75 @@ class NerAgent:
             aggregation_strategy='simple',
             device=self.device
         )
-        
-        # Initialize OCR preprocessor for text cleaning
-        self.ocr_preprocessor = OCRPreprocessor()
-        
+
         print("[NerAgent] ✅ NER model loaded successfully")
 
     # -------------------------
     # Entity extraction
     # -------------------------
     def predict_entities(self, text: str) -> List[NerPrediction]:
-        """Extract entities using NER model"""
+        """Extract entities using NER model, merging adjacent fragments."""
         if not text or len(text.strip()) < 2:
             return []
 
         raw = self.ner_pipeline(text)
-        preds: List[NerPrediction] = []
 
+        # Build initial predictions
+        initial: List[NerPrediction] = []
         for p in raw:
             label = p.get('entity_group') or p.get('entity')
             score = float(p.get('score', 0.0))
             start = int(p.get('start', 0))
             end = int(p.get('end', 0))
             txt = text[max(0, start):min(len(text), end)]
-            preds.append(NerPrediction(
-                entity_type=label,
-                text=txt,
-                start=start,
-                end=end,
-                score=score
+            initial.append(NerPrediction(
+                entity_type=label, text=txt,
+                start=start, end=end, score=score
             ))
 
-        return preds
+        # ── Merge adjacent / near-adjacent spans of the same entity type ──
+        # The HF pipeline with aggregation_strategy='simple' can still
+        # fragment a single real-world entity into multiple B- spans when
+        # sub-word tokens sit on boundaries.  We stitch them back together
+        # by walking left-to-right per entity type and merging any two
+        # spans whose gap (in characters) is ≤ MAX_GAP.
+        MAX_GAP = 15  # chars – covers spaces, punctuation, newlines between fragments
+
+        # Group by entity type, preserving order
+        from collections import defaultdict
+        groups: Dict[str, List[NerPrediction]] = defaultdict(list)
+        for pred in initial:
+            groups[pred.entity_type].append(pred)
+
+        merged: List[NerPrediction] = []
+        for etype, spans in groups.items():
+            # Sort by start offset
+            spans.sort(key=lambda s: s.start)
+            cluster = spans[0]
+            for nxt in spans[1:]:
+                gap = nxt.start - cluster.end
+                if 0 <= gap <= MAX_GAP:
+                    # Merge: extend the cluster to cover both spans using
+                    # the original text so we don't lose characters in the gap
+                    new_start = cluster.start
+                    new_end = max(cluster.end, nxt.end)
+                    new_text = text[new_start:new_end]
+                    # Weighted average score by span length
+                    len1 = cluster.end - cluster.start
+                    len2 = nxt.end - nxt.start
+                    new_score = (cluster.score * len1 + nxt.score * len2) / (len1 + len2) if (len1 + len2) else cluster.score
+                    cluster = NerPrediction(
+                        entity_type=etype, text=new_text,
+                        start=new_start, end=new_end, score=new_score
+                    )
+                else:
+                    merged.append(cluster)
+                    cluster = nxt
+            merged.append(cluster)
+
+        # Sort final list by start offset for consistent ordering
+        merged.sort(key=lambda s: s.start)
+        return merged
 
     # -------------------------
     # Department Normalization
@@ -254,17 +312,20 @@ class NerAgent:
     def _extract_event_name_fallback(self, text: str) -> str:
         """Fallback regex extraction for event name with position-aware scoring"""
         
-        # Extract first 1000 chars (main header section)
-        header_text = text[:1000] if len(text) > 1000 else text
+        # Extract first 1500 chars (main header section — generous for verbose cover pages)
+        header_text = text[:1500] if len(text) > 1500 else text
         
         # High-priority patterns (only search header)
+        # Note: Include BOTH ASCII quotes ("/') AND Unicode smart quotes (\u201c\u201d\u2018\u2019)
+        _Q = r'["\'\'\u201c\u201d\u2018\u2019\u00ab\u00bb]'  # any quote character
+        _NQ = r'[^"\'\u201c\u201d\u2018\u2019\u00ab\u00bb]'  # any non-quote character
         high_priority_patterns = [
             # Pattern 1: Quoted text after "On" (most reliable for FOSS reports)
-            (r'(?i)\bOn\s*\n?\s*["\']([^"\']{10,120})["\']', 100),
+            (rf'(?i)\bOn\s*{_Q}({_NQ}{{10,120}}){_Q}', 100),
             # Pattern 2: Text immediately after "On" keyword at doc start
             (r'(?i)(?:^|\n)\s*On\s*\n\s*([^\n]{10,120}?)(?=\s*\n\s*\d{1,2})', 95),
-            # Pattern 3: Between quotes near top
-            (r'^[^"\']{0,200}["\']([^"\']{10,120})["\']', 90),
+            # Pattern 3: Between quotes near top (any quote type)
+            (rf'^{_NQ}{{0,300}}{_Q}({_NQ}{{10,120}}){_Q}', 90),
         ]
         
         # Try high-priority patterns in header first
@@ -279,8 +340,12 @@ class NerAgent:
         
         # Medium-priority patterns (search full text but score by position)
         medium_priority_patterns = [
-            # Pattern 4: Report/Certificate ON
+            # Pattern 4: Report/Certificate ON + quoted text (flattened or multiline)
+            rf'(?i)(?:REPORT|CERTIFICATE)\s+(?:ON|OF|FOR|on)\s*[:\-]?\s*{_Q}({_NQ}{{8,120}}){_Q}',
+            # Pattern 4b: Report/Certificate ON + unquoted text until next field
             r'(?i)(?:REPORT|CERTIFICATE)\s+(?:ON|OF|FOR|on)\s*[:\-]?\s*([^\n]{8,150}?)(?=\s*(?:\n\s*\d{1,2}|\n\s*Date|\n\s*Venue|\n\n))',
+            # Pattern 4c: titled "..." (common in certificate text)
+            rf'(?i)\btitled\s+{_Q}({_NQ}{{8,120}}){_Q}',
             # Pattern 5: Title/Topic/Subject line
             r'(?i)(?:title|topic|subject|name of (?:the )?event)\s*[:\-]\s*([^\n]{10,150})',
             # Pattern 6: On + Capitalized (relaxed case)
@@ -358,9 +423,8 @@ class NerAgent:
         # Remove time ranges (e.g., "1:20 PM - 2:05 PM")
         name = re.sub(r'\s+\d{1,2}:\d{2}\s*(?:AM|PM).*$', '', name, flags=re.IGNORECASE)
         
-        # Clean up quotes if present
-        name = name.strip('"\'')
-        
+        # Clean up quotes if present (ASCII and Unicode smart quotes)
+        name = name.strip('"\'\u201c\u201d\u2018\u2019\u00ab\u00bb')        
         return name.strip()
     
     def _is_valid_event_name(self, name: str) -> bool:
@@ -403,9 +467,17 @@ class NerAgent:
     def _extract_date_fallback(self, text: str) -> str:
         """Fallback regex extraction for dates"""
         patterns = [
+            # DD/MM/YYYY or DD-MM-YYYY
             r'\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b',
+            # DD.MM.YYYY (common in Indian certificates)
+            r'\b(\d{1,2}\.\d{1,2}\.\d{4})\b',
+            # 30th MARCH 2024, 1st January 2025
+            r'\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})\b',
+            # January 30, 2024
             r'\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})\b',
+            # 30 Mar 2024
             r'\b(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})\b',
+            # ISO format
             r'\b(\d{4}-\d{2}-\d{2})\b',
         ]
         
@@ -421,39 +493,79 @@ class NerAgent:
 
     def _extract_venue_fallback(self, text: str) -> str:
         """Fallback regex extraction for venue"""
-        patterns = [
-            r'(?i)(?:venue|location|place|hall|room|lab)\s*[:\-]?\s*([^\n]{5,80})',
-            r'(?i)(?:held at|conducted at|organized at)\s+([^\n]{5,80})',
-            r'(?i)((?:Block|Hall|Room|Lab|Auditorium|Seminar Hall)\s+[A-Z0-9\-]+)',
+        candidates = []
+
+        # Pattern group 1: Explicit "Location:" or "Venue:" labels (highest priority)
+        label_patterns = [
+            r'(?i)\b(?:venue|location)\s*[:\-]\s*([^\n.]{5,120})',
+            r'(?i)\b(?:place|held at|conducted at|organized at)\s*[:\-]?\s*([^\n.]{5,120})',
         ]
-        
-        for pattern in patterns:
+        for pattern in label_patterns:
             match = re.search(pattern, text)
             if match:
                 venue = match.group(1).strip()
                 venue = re.sub(r'\s+', ' ', venue)
-                venue = re.sub(r'[,\.;]+$', '', venue)
+                # Truncate at next label keyword (e.g., "Organiser", "Date", "Time")
+                venue = re.sub(r'\s*(?:Organis|Date|Time|Event|Speaker|Contact|Phone|Email|Submitted|Under).*$', '', venue, flags=re.IGNORECASE)
+                venue = re.sub(r'[,\.;:]+$', '', venue).strip()
+                if 5 <= len(venue) <= 120:
+                    candidates.append((venue, 100))
+
+        # Pattern group 2: Standalone room/hall/block references (word-boundary protected)
+        room_patterns = [
+            r'(?i)\b((?:Block|Auditorium|Seminar\s+Hall|Conference\s+Hall|Room)\s+[A-Z0-9][A-Z0-9\-]*(?:\s*,\s*[^\n,]{3,40})?)',
+        ]
+        for pattern in room_patterns:
+            match = re.search(pattern, text)
+            if match:
+                venue = match.group(1).strip()
+                venue = re.sub(r'\s+', ' ', venue)
+                venue = re.sub(r'[,\.;:]+$', '', venue).strip()
                 if 5 <= len(venue) <= 80:
-                    return venue
+                    candidates.append((venue, 60))
+
+        if candidates:
+            candidates.sort(key=lambda x: -x[1])
+            return candidates[0][0]
         return ''
 
     def _extract_organizer_fallback(self, text: str) -> str:
         """Fallback regex extraction for organizer"""
-        patterns = [
-            r'(?i)(?:organized by|organiser|organizer|conducted by|coordinated by)\s*[:\-]?\s*([^\n]{5,100})',
-            r'(?i)(?:Dr\.|Prof\.|Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
-            r'(?i)Team\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+        # Primary: explicit label patterns ("Organiser:", "Organized by", etc.)
+        label_patterns = [
+            r'(?i)(?:organiser|organizer|organized\s+by|conducted\s+by|coordinated\s+by)\s*[:\-]?\s*([^\n]{5,150})',
         ]
-        
+
         organizers = []
-        for pattern in patterns:
+        for pattern in label_patterns:
             matches = re.finditer(pattern, text)
             for match in matches:
                 org = match.group(1).strip()
                 org = re.sub(r'\s+', ' ', org)
+                # Truncate at sentence boundary or next field label
+                org = re.sub(r'\s*(?:Event\s+list|Speaker|Date|Time|Venue|Location|Contact|Submitted|Under|Phone|Email).*$', '', org, flags=re.IGNORECASE)
+                # Also truncate at first period followed by a space and capital letter (sentence end)
+                period_match = re.search(r'\.\s+[A-Z]', org)
+                if period_match:
+                    org = org[:period_match.start()].strip()
+                org = re.sub(r'[,\.;:]+$', '', org).strip()
                 if 3 <= len(org) <= 100 and org not in organizers:
                     organizers.append(org)
-        
+
+        # Secondary: name-based patterns
+        if not organizers:
+            name_patterns = [
+                r'(?i)(?:Dr\.|Prof\.|Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+                r'(?i)Team\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+            ]
+            for pattern in name_patterns:
+                matches = re.finditer(pattern, text)
+                for match in matches:
+                    org = match.group(1).strip()
+                    org = re.sub(r'\s+', ' ', org)
+                    if 3 <= len(org) <= 100 and org not in organizers:
+                        organizers.append(org)
+
         return ', '.join(organizers[:3]) if organizers else ''
 
     def _extract_department_fallback(self, text: str) -> str:
@@ -680,7 +792,7 @@ class NerAgent:
             """
             # Quality filtering
             MIN_CONFIDENCE = {
-                'EVENT_NAME': 0.55,  # Stricter for event names
+                'EVENT_NAME': 0.35,  # Lower threshold to capture more event names
                 'DATE': 0.70,        # Dates need high confidence
                 'VENUE': 0.50,
                 'ORGANIZER': 0.60,
@@ -771,11 +883,6 @@ class NerAgent:
 
         # First pass: Extract from NER predictions with quality filtering
         for field, label_variants in mapping.items():
-            # TEMPORARY: Skip NER extraction for EVENT_NAME, use only fallback
-            if field == 'EVENT_NAME':
-                print(f"[NerAgent][MODEL] {field}: Skipping NER (using fallback only)")
-                continue
-            
             candidates: List[NerPrediction] = []
             for lv in label_variants:
                 candidates.extend(by_type.get(lv, []))
@@ -827,12 +934,10 @@ class NerAgent:
                 elif field == 'DOC_TYPE':
                     out['doc_type'] = out_field
                 elif field == 'VENUE':
-                    # Validate venue - reject partial extractions
-                    # Check for trailing punctuation indicating incomplete extraction
-                    if out_field.rstrip().endswith((',', '-', ':', ';')):
-                        print(f"[NerAgent][MODEL] VENUE: '{out_field}' has trailing punctuation (rejected)")
+                    # Clean venue - strip trailing punctuation instead of rejecting
+                    out_field = out_field.rstrip(',-:;')
                     # Reject very short venues
-                    elif len(out_field.strip()) < 3:
+                    if len(out_field.strip()) < 3:
                         print(f"[NerAgent][MODEL] VENUE: '{out_field}' too short (rejected)")
                     # Reject single short words
                     elif len(out_field.split()) == 1 and len(out_field) < 5:
@@ -936,9 +1041,13 @@ class NerAgent:
         """Main prediction pipeline"""
         print(f"[NerAgent] Starting prediction pipeline...")
 
-        # Extract entities
-        preds = self.predict_entities(text)
-        print(f"[NerAgent] 🏷️  Extracted {len(preds)} entities from NER model")
+        # Extract entities (empty list when model is disabled → all fields use fallback)
+        if self.use_model and self.ner_pipeline is not None:
+            preds = self.predict_entities(text)
+            print(f"[NerAgent] 🏷️  Extracted {len(preds)} entities from NER model")
+        else:
+            preds = []
+            print(f"[NerAgent] ⚡ Skipping BERT model — using regex fallbacks only")
 
         # Consolidate fields (with fallbacks)
         fields = self._consolidate_fields(text, preds)
